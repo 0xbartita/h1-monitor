@@ -3,7 +3,7 @@ from cryptography.fernet import Fernet
 from h1monitor.store import Store
 from h1monitor.config import Settings
 from h1monitor.bot import (
-    is_owner, build_config_keyboard, apply_toggle, parse_setapikey_args,
+    is_owner, build_config_keyboard, apply_toggle, parse_setup_args,
     change_type_label, programs_text, status_text, help_text, setup_text,
     start_text, BOT_COMMANDS, config_prompt,
     format_interval, step_interval, apply_interval_step,
@@ -110,7 +110,7 @@ def test_setup_text_links_the_api_token_page():
 def test_bot_commands_cover_all_handlers():
     names = {c.command for c in BOT_COMMANDS}
     assert names == {
-        "start", "setup", "setapikey", "config", "programs", "status", "help",
+        "start", "setup", "config", "programs", "status", "help",
     }
     assert all(c.description for c in BOT_COMMANDS)  # every command has a description
 
@@ -138,9 +138,15 @@ def test_fixed_owner_from_settings(tmp_path):
     assert is_owner(222, st, s) is False
 
 
-def test_parse_setapikey_args():
-    assert parse_setapikey_args("/setapikey abc def") == ("abc", "def")
-    assert parse_setapikey_args("/setapikey only") is None
+def test_parse_setup_args():
+    assert parse_setup_args("/setup abc def") == ("abc", "def")
+    assert parse_setup_args("/setup only") is None
+    assert parse_setup_args("/setup") is None
+
+
+def test_setup_text_uses_the_setup_command_not_setapikey():
+    txt = setup_text()
+    assert "/setup" in txt and "setapikey" not in txt
 
 
 def test_config_keyboard_has_button_per_type(tmp_path):

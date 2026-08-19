@@ -12,8 +12,7 @@ from h1monitor.models import Preferences, ChangeType
 # Registered with Telegram so typing "/" pops up an autocomplete menu.
 BOT_COMMANDS = [
     BotCommand("start", "Show status and capture your chat"),
-    BotCommand("setup", "How to add your HackerOne API key"),
-    BotCommand("setapikey", "Set HackerOne API key (message auto-deleted)"),
+    BotCommand("setup", "Add your HackerOne API key (message auto-deleted)"),
     BotCommand("config", "Choose which alerts you receive"),
     BotCommand("programs", "How many programs are monitored"),
     BotCommand("status", "Poll interval, credentials, settings"),
@@ -33,7 +32,7 @@ def is_owner(chat_id: int | None, store: Store, settings: Settings) -> bool:
     return chat_id == stored
 
 
-def parse_setapikey_args(text: str) -> tuple[str, str] | None:
+def parse_setup_args(text: str) -> tuple[str, str] | None:
     parts = (text or "").split()
     if len(parts) == 3:
         return parts[1], parts[2]
@@ -155,16 +154,16 @@ def setup_text() -> str:
         "<a href=\"https://hackerone.com/settings/api_token/edit\">"
         "hackerone.com/settings/api_token</a>\n"
         "2️⃣ Send me both values from there:\n"
-        "<code>/setapikey &lt;username&gt; &lt;token&gt;</code>\n\n"
+        "<code>/setup &lt;username&gt; &lt;token&gt;</code>\n\n"
         "🔒 Your message is <b>deleted the instant</b> I read it, and the key is stored encrypted."
     )
 
 
-def setapikey_usage() -> str:
-    return "⚠️ <b>Usage:</b> <code>/setapikey &lt;username&gt; &lt;token&gt;</code>"
+def setup_usage() -> str:
+    return "⚠️ <b>Usage:</b> <code>/setup &lt;username&gt; &lt;token&gt;</code>"
 
 
-def setapikey_saved() -> str:
+def setup_saved() -> str:
     return (
         "🔐 <b>API key saved</b> — and your message was deleted.\n"
         "Your private programs start syncing on the next check."
@@ -205,7 +204,7 @@ def help_text() -> str:
     return (
         "🛠 <b>h1monitor commands</b>\n\n"
         "/start — status &amp; setup\n"
-        "/setapikey — connect your API key (auto-deleted)\n"
+        "/setup — connect your API key (message auto-deleted)\n"
         "/config — choose which alerts you receive\n"
         "/programs — how many programs &amp; scopes are watched\n"
         "/status — check intervals &amp; settings\n"
@@ -281,26 +280,26 @@ def build_application(settings: Settings, store: Store) -> Application:
         has = store.get_h1_credentials() is not None
         await update.message.reply_text(start_text(has), parse_mode="HTML")
 
-    async def setapikey(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    async def setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
-        parsed = parse_setapikey_args(update.message.text)
+        text = update.message.text or ""
+        # Plain "/setup" → show instructions.
+        if len(text.split()) <= 1:
+            await update.message.reply_text(setup_text(), parse_mode="HTML")
+            return
+        # "/setup <username> <token>" → the message carries the key, so delete it
+        # first (before anything can fail), then save or explain the format.
         try:
             await update.message.delete()
         except Exception:
             pass
+        parsed = parse_setup_args(text)
         if not parsed:
-            await update.effective_chat.send_message(
-                setapikey_usage(), parse_mode="HTML"
-            )
+            await update.effective_chat.send_message(setup_usage(), parse_mode="HTML")
             return
         store.set_h1_credentials(*parsed)
-        await update.effective_chat.send_message(setapikey_saved(), parse_mode="HTML")
-
-    async def setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
-            return
-        await update.message.reply_text(setup_text(), parse_mode="HTML")
+        await update.effective_chat.send_message(setup_saved(), parse_mode="HTML")
 
     async def config(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
@@ -363,7 +362,6 @@ def build_application(settings: Settings, store: Store) -> Application:
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setup", setup))
-    app.add_handler(CommandHandler("setapikey", setapikey))
     app.add_handler(CommandHandler("config", config))
     app.add_handler(CommandHandler("programs", programs))
     app.add_handler(CommandHandler("status", status))
