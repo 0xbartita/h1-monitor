@@ -5,9 +5,9 @@ from h1monitor.config import Settings
 from h1monitor.bot import (
     is_owner, build_config_keyboard, apply_toggle, parse_setapikey_args,
     change_type_label, programs_text, status_text, help_text, setup_text,
-    start_text, BOT_COMMANDS,
+    start_text, BOT_COMMANDS, config_prompt,
     format_interval, step_interval, apply_interval_step,
-    parse_setinterval_args, apply_setinterval, INTERVAL_BOUNDS,
+    estimate_sweep_minutes, recommend_private_interval,
     PUBLIC_INTERVALS, PRIVATE_INTERVALS,
 )
 from h1monitor.models import Preferences, ChangeType
@@ -71,45 +71,46 @@ def test_apply_interval_step_changes_and_persists(tmp_path):
     assert st.get_preferences().private_interval_minutes == 60
 
 
-def test_parse_setinterval_args():
-    assert parse_setinterval_args("/setinterval public 45") == ("public", 45)
-    assert parse_setinterval_args("/setinterval PRIVATE 90") == ("private", 90)
-    assert parse_setinterval_args("/setinterval public") is None
-    assert parse_setinterval_args("/setinterval bogus 45") is None
-    assert parse_setinterval_args("/setinterval public abc") is None
+def test_private_presets_stay_above_sweep_time():
+    # private floor must clear a single ~10-13 min sweep so scans never overlap
+    assert min(PRIVATE_INTERVALS) >= 15
+    assert min(PUBLIC_INTERVALS) >= 1
 
 
-def test_apply_setinterval_sets_custom_value(tmp_path):
-    st = _store(tmp_path)
-    st.save_preferences(Preferences.defaults())
-    p = apply_setinterval(st, "private", 45)
-    assert p.private_interval_minutes == 45
-    assert st.get_preferences().private_interval_minutes == 45
+def test_recommend_private_interval_scales_with_account_size():
+    # tiny account -> floored at the smallest preset
+    assert recommend_private_interval(5, 50) == min(PRIVATE_INTERVALS)
+    # large account -> a longer gap, and never faster than a full sweep
+    big = recommend_private_interval(458, 14950)
+    assert big in PRIVATE_INTERVALS
+    assert big > min(PRIVATE_INTERVALS)
+    assert big >= estimate_sweep_minutes(458, 14950)
 
 
-def test_interval_bounds_floor_private_above_sweep_time():
-    lo_pub, _ = INTERVAL_BOUNDS["public"]
-    lo_priv, _ = INTERVAL_BOUNDS["private"]
-    # private floor must exceed a single ~10-13 min sweep so scans never overlap
-    assert lo_priv >= 15
-    assert lo_pub >= 1
-    # presets must respect their own floors
-    assert min(PUBLIC_INTERVALS) >= lo_pub
-    assert min(PRIVATE_INTERVALS) >= lo_priv
+def test_config_prompt_includes_private_recommendation():
+    txt = config_prompt(458, 14950)
+    assert "458" in txt and "suggest" in txt
+    # no private programs yet -> no recommendation line
+    assert "suggest" not in config_prompt(0, 0)
 
 
 def test_message_text_is_html_safe():
     # literal angle brackets must be escaped so Telegram HTML parsing succeeds
-    assert "&lt;identifier&gt;" in setup_text() and "<identifier>" not in setup_text()
+    assert "&lt;username&gt;" in setup_text() and "<username>" not in setup_text()
     assert "&amp;" in help_text()
     assert "<b>" in start_text(False)  # actually styled
+
+
+def test_setup_text_links_the_api_token_page():
+    txt = setup_text()
+    assert 'href="https://hackerone.com/settings/api_token/edit"' in txt
+    assert "username" in txt and "identifier" not in txt
 
 
 def test_bot_commands_cover_all_handlers():
     names = {c.command for c in BOT_COMMANDS}
     assert names == {
-        "start", "setup", "setapikey", "config", "programs", "status",
-        "setinterval", "help",
+        "start", "setup", "setapikey", "config", "programs", "status", "help",
     }
     assert all(c.description for c in BOT_COMMANDS)  # every command has a description
 

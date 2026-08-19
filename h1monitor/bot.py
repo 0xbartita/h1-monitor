@@ -15,7 +15,6 @@ BOT_COMMANDS = [
     BotCommand("setup", "How to add your HackerOne API key"),
     BotCommand("setapikey", "Set HackerOne API key (message auto-deleted)"),
     BotCommand("config", "Choose which alerts you receive"),
-    BotCommand("setinterval", "Set how often I check (public/private)"),
     BotCommand("programs", "How many programs are monitored"),
     BotCommand("status", "Poll interval, credentials, settings"),
     BotCommand("help", "List all commands"),
@@ -65,12 +64,6 @@ PUBLIC_INTERVALS = [15, 30, 60, 120, 240, 360, 720, 1440]
 # comfortable margin before the next scan begins.
 PRIVATE_INTERVALS = [30, 60, 120, 240, 360, 720, 1440]
 
-# (floor, ceiling) in minutes for custom /setinterval values.
-INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
-    "public": (5, 10080),    # 5 min .. 7 days
-    "private": (15, 10080),  # 15 min .. 7 days (floor > one sweep)
-}
-
 # Which Preferences field each side maps to.
 _INTERVAL_FIELD = {
     "public": "poll_interval_minutes",
@@ -113,48 +106,33 @@ def apply_interval_step(store: Store, data: str) -> Preferences:
     return prefs
 
 
-def parse_setinterval_args(text: str) -> tuple[str, int] | None:
-    parts = (text or "").split()
-    if len(parts) != 3:
-        return None
-    which = parts[1].lower()
-    if which not in _INTERVAL_FIELD:
-        return None
-    try:
-        return which, int(parts[2])
-    except ValueError:
-        return None
+def estimate_sweep_minutes(nprograms: int, nscopes: int) -> int:
+    """Rough wall-clock for one full private sweep. Each program costs a list
+    request plus a scope page per ~100 scopes, at ~1.4s per request (the H1
+    scope endpoint is slow and we scan sequentially to stay rate-safe)."""
+    requests = nprograms + (nscopes + 99) // 100
+    return max(1, round(requests * 1.4 / 60))
 
 
-def apply_setinterval(store: Store, which: str, mins: int) -> Preferences:
-    """Set a custom interval (assumed already range-checked) and persist."""
-    prefs = store.get_preferences()
-    setattr(prefs, _INTERVAL_FIELD[which], mins)
-    store.save_preferences(prefs)
-    return prefs
+def recommend_private_interval(nprograms: int, nscopes: int) -> int:
+    """Smallest preset that leaves comfortable headroom over a full sweep, so
+    the account is never scanned faster than it can finish."""
+    target = max(min(PRIVATE_INTERVALS), estimate_sweep_minutes(nprograms, nscopes) * 3)
+    for p in PRIVATE_INTERVALS:
+        if p >= target:
+            return p
+    return PRIVATE_INTERVALS[-1]
 
 
-def setinterval_usage() -> str:
+def private_recommendation_line(nprograms: int, nscopes: int) -> str:
+    if nprograms <= 0:
+        return ""
+    rec = recommend_private_interval(nprograms, nscopes)
+    sweep = estimate_sweep_minutes(nprograms, nscopes)
     return (
-        "⚠️ <b>Usage:</b> <code>/setinterval &lt;public|private&gt; &lt;minutes&gt;</code>\n"
-        "Example: <code>/setinterval private 45</code>"
-    )
-
-
-def setinterval_out_of_range(which: str, lo: int, hi: int) -> str:
-    return (
-        f"⚠️ <b>{which.capitalize()} check</b> must be between "
-        f"<b>{format_interval(lo)}</b> and <b>{format_interval(hi)}</b>.\n"
-        + ("<i>The private floor keeps scans from overlapping a full sweep.</i>"
-           if which == "private" else "")
-    ).rstrip()
-
-
-def setinterval_saved(which: str, mins: int) -> str:
-    return (
-        f"⏱ <b>{which.capitalize()} check</b> set to "
-        f"<b>every {format_interval(mins)}</b>.\n"
-        "Takes effect on the next check."
+        f"\n\n💡 You have <b>{nprograms:,}</b> private programs — one full scan "
+        f"takes about <b>{format_interval(sweep)}</b>, so I suggest a private "
+        f"check every <b>{format_interval(rec)}</b> or more."
     )
 
 
@@ -173,14 +151,17 @@ def start_text(has_creds: bool) -> str:
 def setup_text() -> str:
     return (
         "🔑 <b>Connect your HackerOne API key</b>\n\n"
-        "Send this — both values are on your HackerOne <i>API Token</i> settings page:\n"
-        "<code>/setapikey &lt;identifier&gt; &lt;token&gt;</code>\n\n"
+        "1️⃣ Open your token page: "
+        "<a href=\"https://hackerone.com/settings/api_token/edit\">"
+        "hackerone.com/settings/api_token</a>\n"
+        "2️⃣ Send me both values from there:\n"
+        "<code>/setapikey &lt;username&gt; &lt;token&gt;</code>\n\n"
         "🔒 Your message is <b>deleted the instant</b> I read it, and the key is stored encrypted."
     )
 
 
 def setapikey_usage() -> str:
-    return "⚠️ <b>Usage:</b> <code>/setapikey &lt;identifier&gt; &lt;token&gt;</code>"
+    return "⚠️ <b>Usage:</b> <code>/setapikey &lt;username&gt; &lt;token&gt;</code>"
 
 
 def setapikey_saved() -> str:
@@ -190,12 +171,12 @@ def setapikey_saved() -> str:
     )
 
 
-def config_prompt() -> str:
+def config_prompt(npriv: int = 0, priv_sc: int = 0) -> str:
     return (
         "⚙️ <b>Choose what you get alerted about</b>\n"
         "Tap <b>➖ / ➕</b> to change how often I check, or tap any alert to "
-        "switch it on or off.\n"
-        "<i>Need an exact number? Send</i> <code>/setinterval private 45</code>."
+        "switch it on or off."
+        + private_recommendation_line(npriv, priv_sc)
     )
 
 
@@ -226,7 +207,6 @@ def help_text() -> str:
         "/start — status &amp; setup\n"
         "/setapikey — connect your API key (auto-deleted)\n"
         "/config — choose which alerts you receive\n"
-        "/setinterval — set how often I check (e.g. <code>private 45</code>)\n"
         "/programs — how many programs &amp; scopes are watched\n"
         "/status — check intervals &amp; settings\n"
         "/help — show this list\n\n"
@@ -325,8 +305,11 @@ def build_application(settings: Settings, store: Store) -> Application:
     async def config(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
+        priv = store.load_snapshot("private")
+        npriv = len(priv.programs) if priv else 0
+        priv_sc = sum(len(p.scopes) for p in priv.programs.values()) if priv else 0
         await update.message.reply_text(
-            config_prompt(),
+            config_prompt(npriv, priv_sc),
             parse_mode="HTML",
             reply_markup=build_config_keyboard(store.get_preferences()),
         )
@@ -352,25 +335,6 @@ def build_application(settings: Settings, store: Store) -> Application:
     async def on_noop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         # The interval label button carries no action.
         await update.callback_query.answer()
-
-    async def setinterval(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
-            return
-        parsed = parse_setinterval_args(update.message.text)
-        if not parsed:
-            await update.message.reply_text(setinterval_usage(), parse_mode="HTML")
-            return
-        which, mins = parsed
-        lo, hi = INTERVAL_BOUNDS[which]
-        if not (lo <= mins <= hi):
-            await update.message.reply_text(
-                setinterval_out_of_range(which, lo, hi), parse_mode="HTML"
-            )
-            return
-        apply_setinterval(store, which, mins)
-        await update.message.reply_text(
-            setinterval_saved(which, mins), parse_mode="HTML"
-        )
 
     async def programs(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
@@ -401,7 +365,6 @@ def build_application(settings: Settings, store: Store) -> Application:
     app.add_handler(CommandHandler("setup", setup))
     app.add_handler(CommandHandler("setapikey", setapikey))
     app.add_handler(CommandHandler("config", config))
-    app.add_handler(CommandHandler("setinterval", setinterval))
     app.add_handler(CommandHandler("programs", programs))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("help", help_cmd))
