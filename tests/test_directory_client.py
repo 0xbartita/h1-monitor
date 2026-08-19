@@ -108,3 +108,16 @@ async def test_fetch_public_snapshot_raises_on_graphql_errors():
     with pytest.raises(RuntimeError):
         await c.fetch_public_snapshot()
     await c.aclose()
+
+
+@pytest.mark.asyncio
+async def test_null_edges_does_not_crash_public_fetch():
+    def handler(request):
+        if request.url.path == "/directory/programs":
+            return httpx.Response(200, text='<meta name="csrf-token" content="t">')
+        return httpx.Response(200, json={"data": {"teams": {
+            "edges": None, "pageInfo": {"hasNextPage": False, "endCursor": None}}}})
+    c = DirectoryClient(transport=httpx.MockTransport(handler), retry_delay=0)
+    snap = await c.fetch_public_snapshot()
+    await c.aclose()
+    assert snap.programs == {}   # was: TypeError from `for edge in None`

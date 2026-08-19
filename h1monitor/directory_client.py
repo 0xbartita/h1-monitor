@@ -127,7 +127,7 @@ class DirectoryClient:
             if body.get("errors"):
                 raise RuntimeError(f"directory graphql errors: {body['errors']}")
             teams = (body.get("data") or {}).get("teams") or {}
-            for edge in teams.get("edges", []):
+            for edge in teams.get("edges") or []:
                 node = edge.get("node") or {}
                 if node.get("handle"):
                     prog = _program_from_node(node)

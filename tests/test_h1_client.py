@@ -108,3 +108,24 @@ async def test_per_program_error_reuses_previous():
     snap = await client.fetch_private_snapshot(previous=prev)
     await client.aclose()
     assert snap.programs["priv"].scopes["URL:a.com"].max_severity == "low"
+
+
+def test_retry_after_is_safe_against_bad_and_hostile_headers():
+    from h1monitor.h1_client import _retry_after, _MAX_BACKOFF
+    assert _retry_after({"Retry-After": "3"}, default=2) == 3.0
+    assert _retry_after({}, default=2) == 2.0                     # missing -> default
+    # non-numeric (e.g. an RFC-7231 HTTP-date) must not raise -> falls back to default
+    assert _retry_after({"Retry-After": "Wed, 21 Oct 2025 07:28:00 GMT"}, default=2) == 2.0
+    assert _retry_after({"Retry-After": "0"}, default=2) >= 1.0   # floored: no hammer
+    assert _retry_after({"Retry-After": "-5"}, default=2) >= 1.0
+    assert _retry_after({"Retry-After": "9999"}, default=2) == _MAX_BACKOFF  # capped
+
+
+@pytest.mark.asyncio
+async def test_null_data_field_does_not_crash_private_fetch():
+    def handler(request):
+        return httpx.Response(200, json={"data": None, "links": {}})  # explicit null
+    client = H1Client("id", "tok", transport=httpx.MockTransport(handler), scope_delay=0)
+    snap = await client.fetch_private_snapshot()
+    await client.aclose()
+    assert snap.programs == {}   # was: TypeError from extend(None)

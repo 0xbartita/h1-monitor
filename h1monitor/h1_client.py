@@ -17,6 +17,20 @@ _MAX_BACKOFF = 30.0
 _SCOPE_BASE_GAP = 0.35
 _SCOPE_MAX_GAP = 5.0
 _SCOPE_MAX_TRIES = 6
+_RETRY_AFTER_FLOOR = 1.0  # never wait less than this on a 429 (don't hammer)
+
+
+def _retry_after(headers, default: float, floor: float = _RETRY_AFTER_FLOOR) -> float:
+    """Parse a 429/503 Retry-After into a safe sleep. A non-numeric value (e.g.
+    an RFC-7231 HTTP-date) or a missing header falls back to `default` instead of
+    crashing; the result is clamped to [floor, _MAX_BACKOFF] so a hostile 0 or
+    negative value can never cause a tight retry storm against HackerOne."""
+    raw = headers.get("Retry-After")
+    try:
+        wait = float(raw) if raw is not None else default
+    except (TypeError, ValueError):
+        wait = default
+    return min(max(wait, floor), _MAX_BACKOFF)
 
 
 def _parse_program_item(item: dict) -> Program:
@@ -62,10 +76,9 @@ class H1Client:
         for attempt in range(_MAX_TRIES):
             resp = await self._client.get(url)
             if resp.status_code == 429 and attempt < _MAX_TRIES - 1:
-                # Rate limited — wait out HackerOne's Retry-After (capped so a
-                # single hostile header can't wedge the whole scan).
-                wait = min(float(resp.headers.get("Retry-After", "2")), _MAX_BACKOFF)
-                await asyncio.sleep(wait)
+                # Rate limited — wait out HackerOne's Retry-After (floored so a
+                # hostile 0 can't hammer, capped so a huge one can't wedge).
+                await asyncio.sleep(_retry_after(resp.headers, default=2))
                 continue
             if resp.status_code >= 500 and attempt < _MAX_TRIES - 1:
                 await asyncio.sleep(min(2**attempt, _MAX_BACKOFF))
@@ -80,7 +93,7 @@ class H1Client:
         url: str | None = first_url
         while url:
             body = await self._get(url)
-            items.extend(body.get("data", []))
+            items.extend(body.get("data") or [])
             url = (body.get("links") or {}).get("next")
         return items
 
@@ -102,8 +115,7 @@ class H1Client:
                 # Slow the whole sweep down, wait, retry.
                 self._delay = min(self._delay * 1.5 + 0.2, _SCOPE_MAX_GAP)
                 if self._scope_gap:
-                    wait = min(float(resp.headers.get("Retry-After", "5")), _MAX_BACKOFF)
-                    await asyncio.sleep(wait)
+                    await asyncio.sleep(_retry_after(resp.headers, default=5))
                 continue
             if resp.status_code >= 500:
                 if self._scope_gap:
@@ -122,7 +134,7 @@ class H1Client:
         url: str | None = f"/hackers/programs/{handle}/structured_scopes?page[size]=100"
         while url:
             body = await self._get_scope_page(url)
-            items.extend(body.get("data", []))
+            items.extend(body.get("data") or [])
             url = (body.get("links") or {}).get("next")
         return items
 
