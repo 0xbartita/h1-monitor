@@ -151,7 +151,7 @@ def start_text(has_creds: bool) -> str:
 def setup_text() -> str:
     return (
         "🔑 <b>Connect your HackerOne API key</b>\n\n"
-        "1️⃣ Open your token page: "
+        "1️⃣ Open your API token page: "
         "<a href=\"https://hackerone.com/settings/api_token/edit\">"
         "hackerone.com/settings/api_token</a>\n"
         "2️⃣ Send me both values from there:\n"
