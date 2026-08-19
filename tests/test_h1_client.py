@@ -42,15 +42,15 @@ async def test_fetch_private_snapshot_includes_private_with_scopes():
         return httpx.Response(404)
 
     client = H1Client("id", "tok", transport=httpx.MockTransport(handler), scope_delay=0)
-    snap = await client.fetch_private_snapshot(scope_handles={"acme"})
+    snap = await client.fetch_private_snapshot()
     await client.aclose()
     assert "acme" in snap.programs
     assert snap.programs["acme"].scopes["URL:a.com"].max_severity == "high"
 
 
 @pytest.mark.asyncio
-async def test_no_scope_handles_scans_all_private_scopes():
-    """Default (scope_handles=None) deep-scans EVERY private program."""
+async def test_all_private_programs_are_scope_scanned():
+    """Every private program is deep-scanned for scopes — no opt-in needed."""
     scanned = []
 
     def handler(request):
@@ -64,54 +64,11 @@ async def test_no_scope_handles_scans_all_private_scopes():
         return httpx.Response(404)
 
     client = H1Client("id", "tok", transport=httpx.MockTransport(handler), scope_delay=0)
-    snap = await client.fetch_private_snapshot()  # no scope_handles → scan ALL
+    snap = await client.fetch_private_snapshot()
     await client.aclose()
     assert sorted(scanned) == ["alpha", "beta"]
     assert snap.programs["alpha"].scopes["URL:a.com"].max_severity == "high"
     assert snap.programs["beta"].scopes["URL:a.com"].max_severity == "high"
-
-
-@pytest.mark.asyncio
-async def test_empty_scope_handles_scans_none():
-    """An explicit empty set means scan nobody (the 'limit to nothing' edge)."""
-    scanned = []
-
-    def handler(request):
-        url = str(request.url)
-        if request.url.path.endswith("/hackers/programs"):
-            return httpx.Response(200, json={"data": [_prog_item("alpha")], "links": {}})
-        if "structured_scopes" in url:
-            scanned.append("hit")
-            return httpx.Response(200, json=_scopes_body())
-        return httpx.Response(404)
-
-    client = H1Client("id", "tok", transport=httpx.MockTransport(handler), scope_delay=0)
-    snap = await client.fetch_private_snapshot(scope_handles=set())
-    await client.aclose()
-    assert scanned == []
-    assert snap.programs["alpha"].scopes == {}
-
-
-@pytest.mark.asyncio
-async def test_unwatched_private_programs_are_not_scope_scanned():
-    scanned = []
-
-    def handler(request):
-        url = str(request.url)
-        if request.url.path.endswith("/hackers/programs"):
-            return httpx.Response(200, json={"data": [
-                _prog_item("watched"), _prog_item("ignored")], "links": {}})
-        if "structured_scopes" in url:
-            scanned.append(request.url.path.split("/programs/")[1].split("/")[0])
-            return httpx.Response(200, json=_scopes_body())
-        return httpx.Response(404)
-
-    client = H1Client("id", "tok", transport=httpx.MockTransport(handler), scope_delay=0)
-    snap = await client.fetch_private_snapshot(scope_handles={"watched"})
-    await client.aclose()
-    assert set(snap.programs) == {"watched", "ignored"}  # both tracked (program-level)
-    assert scanned == ["watched"]  # only the watched one is scope-scanned
-    assert snap.programs["ignored"].scopes == {}
 
 
 @pytest.mark.asyncio
@@ -148,6 +105,6 @@ async def test_per_program_error_reuses_previous():
         return httpx.Response(500)  # scopes fail
 
     client = H1Client("id", "tok", transport=httpx.MockTransport(handler), scope_delay=0)
-    snap = await client.fetch_private_snapshot(previous=prev, scope_handles={"priv"})
+    snap = await client.fetch_private_snapshot(previous=prev)
     await client.aclose()
     assert snap.programs["priv"].scopes["URL:a.com"].max_severity == "low"

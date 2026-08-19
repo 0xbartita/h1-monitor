@@ -15,18 +15,10 @@ BOT_COMMANDS = [
     BotCommand("setup", "How to add your HackerOne API key"),
     BotCommand("setapikey", "Set HackerOne API key (message auto-deleted)"),
     BotCommand("config", "Choose which alerts you receive"),
-    BotCommand("watch", "Advanced: limit scope-scans to specific private programs"),
-    BotCommand("unwatch", "Advanced: drop a program from the scope-scan limit"),
-    BotCommand("watchlist", "Show scope-scan coverage (default: all private)"),
     BotCommand("programs", "How many programs are monitored"),
     BotCommand("status", "Poll interval, credentials, settings"),
     BotCommand("help", "List all commands"),
 ]
-
-
-def parse_handle_arg(text: str) -> str | None:
-    parts = (text or "").split()
-    return parts[1] if len(parts) == 2 else None
 
 
 def is_owner(chat_id: int | None, store: Store, settings: Settings) -> bool:
@@ -144,59 +136,6 @@ def build_application(settings: Settings, store: Store) -> Application:
         await q.answer("Updated")
         await q.edit_message_reply_markup(build_config_keyboard(prefs))
 
-    async def watch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
-            return
-        handle = parse_handle_arg(update.message.text)
-        if not handle:
-            await update.message.reply_text("Usage: /watch <program-handle>")
-            return
-        prefs = store.get_preferences()
-        prefs.private_watch = prefs.private_watch | {handle}
-        store.save_preferences(prefs)
-        await update.message.reply_text(
-            f"🔒 Scope-scanning is now LIMITED to {len(prefs.private_watch)} private "
-            f"program(s), including '{handle}'.\n"
-            "By default all your private scopes are scanned — /watch is only for cutting "
-            "API load to a chosen few. /unwatch until the list is empty to go back to all."
-        )
-
-    async def unwatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
-            return
-        handle = parse_handle_arg(update.message.text)
-        if not handle:
-            await update.message.reply_text("Usage: /unwatch <program-handle>")
-            return
-        prefs = store.get_preferences()
-        prefs.private_watch = prefs.private_watch - {handle}
-        store.save_preferences(prefs)
-        if prefs.private_watch:
-            await update.message.reply_text(
-                f"Dropped '{handle}'. Scope-scan limit now covers "
-                f"{len(prefs.private_watch)} program(s)."
-            )
-        else:
-            await update.message.reply_text(
-                "Limit cleared — back to scope-scanning ALL your private programs (default)."
-            )
-
-    async def watchlist(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
-            return
-        watched = sorted(store.get_preferences().private_watch)
-        if watched:
-            await update.message.reply_text(
-                "⚠️ Scope-scanning is LIMITED to these private programs:\n"
-                + "\n".join(f"• {h}" for h in watched)
-                + "\n\n/unwatch until empty to scan ALL private programs again."
-            )
-        else:
-            await update.message.reply_text(
-                "✅ Scope-scanning ALL your private programs (default — nothing to set up).\n"
-                "Use /watch <handle> only if you want to limit scanning to a chosen few."
-            )
-
     async def programs(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
@@ -204,14 +143,12 @@ def build_application(settings: Settings, store: Store) -> Application:
         priv = store.load_snapshot("private")
         npub = len(pub.programs) if pub else 0
         npriv = len(priv.programs) if priv else 0
-        nwatch = len(store.get_preferences().private_watch)
-        coverage = (
-            f"{nwatch} chosen private program(s) (limit active)"
-            if nwatch else "ALL private programs (default)"
-        )
+        pub_sc = sum(len(p.scopes) for p in pub.programs.values()) if pub else 0
+        priv_sc = sum(len(p.scopes) for p in priv.programs.values()) if priv else 0
         await update.message.reply_text(
             f"Monitoring {npub} public + {npriv} private program(s).\n"
-            f"Scope-scanning: {coverage}."
+            f"Scopes watched: {pub_sc} public + {priv_sc} private.\n"
+            "All scopes — public and private — are tracked automatically."
         )
 
     async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -232,22 +169,16 @@ def build_application(settings: Settings, store: Store) -> Application:
             "/start — status & setup\n"
             "/setapikey <id> <token> — set API key (auto-deleted)\n"
             "/config — toggle which alerts you get\n"
-            "All your private programs' scopes are watched automatically.\n"
-            "/watch <handle> — (advanced) limit scope-scans to chosen programs\n"
-            "/unwatch <handle> — drop one from the limit (empty = all again)\n"
-            "/watchlist — show scope-scan coverage\n"
-            "/programs — counts\n"
+            "/programs — how many programs & scopes are monitored\n"
             "/status — settings\n"
-            "/help — this list"
+            "/help — this list\n\n"
+            "All programs and scopes — public and private — are monitored automatically."
         )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setup", setup))
     app.add_handler(CommandHandler("setapikey", setapikey))
     app.add_handler(CommandHandler("config", config))
-    app.add_handler(CommandHandler("watch", watch))
-    app.add_handler(CommandHandler("unwatch", unwatch))
-    app.add_handler(CommandHandler("watchlist", watchlist))
     app.add_handler(CommandHandler("programs", programs))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("help", help_cmd))

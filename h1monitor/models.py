@@ -112,7 +112,6 @@ class Preferences:
     private_interval_minutes: int = 120
     allowlist: frozenset[str] = frozenset()
     denylist: frozenset[str] = frozenset()
-    private_watch: frozenset[str] = frozenset()
 
     @classmethod
     def defaults(cls) -> "Preferences":
@@ -130,7 +129,6 @@ class Preferences:
                 "private_interval_minutes": self.private_interval_minutes,
                 "allowlist": sorted(self.allowlist),
                 "denylist": sorted(self.denylist),
-                "private_watch": sorted(self.private_watch),
             }
         )
 
@@ -150,5 +148,4 @@ class Preferences:
             private_interval_minutes=int(d.get("private_interval_minutes", 120)),
             allowlist=frozenset(d.get("allowlist", [])),
             denylist=frozenset(d.get("denylist", [])),
-            private_watch=frozenset(d.get("private_watch", [])),
         )

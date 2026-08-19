@@ -14,10 +14,7 @@ async def run_private_cycle(store: Store, client, notifier: Notifier) -> None:
     """Diff the operator's private programs (via their API key)."""
     prefs = store.get_preferences()
     previous = store.load_snapshot("private")
-    # No /watch list → scan ALL private programs' scopes (None = "everything").
-    # A non-empty list narrows scope-scanning to just those handles.
-    scope_handles = set(prefs.private_watch) if prefs.private_watch else None
-    snap = await client.fetch_private_snapshot(previous, scope_handles=scope_handles)
+    snap = await client.fetch_private_snapshot(previous)
     if previous is None:
         store.save_snapshot("private", snap)
         await notifier.send_text(

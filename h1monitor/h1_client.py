@@ -129,22 +129,16 @@ class H1Client:
     async def fetch_private_snapshot(
         self,
         previous: Snapshot | None = None,
-        scope_handles: set[str] | None = None,
     ) -> Snapshot:
-        """Fetch the operator's PRIVATE programs (state != "public_mode").
+        """Fetch the operator's PRIVATE programs (state != "public_mode"), with
+        every program's scopes.
 
-        Program-level fields (name/state/bounties) come from the fast list for
-        ALL private programs. Detailed scopes are fetched per program
-        SEQUENTIALLY and self-throttled — HackerOne's scope endpoint trips a
-        hidden rate-limiter when hit in bursts, so a full sweep of hundreds of
-        private programs takes minutes but never rate-limits.
-
-        `scope_handles` selects WHICH programs get deep-scanned for scopes:
-          * None  → scan every private program (the default).
-          * a set → scan only those handles (an opt-in narrowing to cut API
-                    load); the rest keep their previous scopes.
-          * empty set → scan none.
-        Programs that aren't scanned keep their previous scopes (or none)."""
+        Program-level fields (name/state/bounties) come from the fast list.
+        Detailed scopes are fetched per program SEQUENTIALLY and self-throttled
+        — HackerOne's scope endpoint trips a hidden rate-limiter when hit in
+        bursts, so a full sweep of hundreds of private programs takes minutes but
+        never rate-limits. A program whose scope fetch fails keeps its previous
+        scopes so one hiccup doesn't wipe the cycle."""
         progs: list[Program] = []
         for item in await self._paginate("/hackers/programs?page[size]=100"):
             attrs = item.get("attributes", {})
@@ -158,11 +152,6 @@ class H1Client:
 
         for prog in progs:  # sequential — no bursts, so the limiter stays happy
             prev = previous.programs.get(prog.handle) if previous else None
-            scan = scope_handles is None or prog.handle in scope_handles
-            if not scan:
-                if prev is not None:
-                    prog.scopes = prev.scopes
-                continue
             try:
                 items = await self._fetch_scopes(prog.handle)
                 prog.scopes = {s.key: s for s in map(_parse_scope_item, items)}

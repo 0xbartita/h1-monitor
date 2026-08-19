@@ -4,7 +4,7 @@ from h1monitor.store import Store
 from h1monitor.config import Settings
 from h1monitor.bot import (
     is_owner, build_config_keyboard, apply_toggle, parse_setapikey_args,
-    parse_handle_arg, BOT_COMMANDS,
+    BOT_COMMANDS,
 )
 from h1monitor.models import Preferences, ChangeType
 
@@ -12,23 +12,9 @@ from h1monitor.models import Preferences, ChangeType
 def test_bot_commands_cover_all_handlers():
     names = {c.command for c in BOT_COMMANDS}
     assert names == {
-        "start", "setup", "setapikey", "config", "watch", "unwatch",
-        "watchlist", "programs", "status", "help",
+        "start", "setup", "setapikey", "config", "programs", "status", "help",
     }
     assert all(c.description for c in BOT_COMMANDS)  # every command has a description
-
-
-def test_parse_handle_arg():
-    assert parse_handle_arg("/watch acme") == "acme"
-    assert parse_handle_arg("/watch") is None
-    assert parse_handle_arg("/watch a b") is None
-
-
-def test_private_watch_json_roundtrip():
-    p = Preferences.defaults()
-    p.private_watch = frozenset({"acme", "beta"})
-    p2 = Preferences.from_json(p.to_json())
-    assert p2.private_watch == frozenset({"acme", "beta"})
 
 
 def _settings():
