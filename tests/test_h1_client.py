@@ -42,10 +42,32 @@ async def test_fetch_private_snapshot_includes_private_with_scopes():
         return httpx.Response(404)
 
     client = H1Client("id", "tok", transport=httpx.MockTransport(handler))
-    snap = await client.fetch_private_snapshot()
+    snap = await client.fetch_private_snapshot(scope_handles={"acme"})
     await client.aclose()
     assert "acme" in snap.programs
     assert snap.programs["acme"].scopes["URL:a.com"].max_severity == "high"
+
+
+@pytest.mark.asyncio
+async def test_unwatched_private_programs_are_not_scope_scanned():
+    scanned = []
+
+    def handler(request):
+        url = str(request.url)
+        if request.url.path.endswith("/hackers/programs"):
+            return httpx.Response(200, json={"data": [
+                _prog_item("watched"), _prog_item("ignored")], "links": {}})
+        if "structured_scopes" in url:
+            scanned.append(request.url.path.split("/programs/")[1].split("/")[0])
+            return httpx.Response(200, json=_scopes_body())
+        return httpx.Response(404)
+
+    client = H1Client("id", "tok", transport=httpx.MockTransport(handler))
+    snap = await client.fetch_private_snapshot(scope_handles={"watched"})
+    await client.aclose()
+    assert set(snap.programs) == {"watched", "ignored"}  # both tracked (program-level)
+    assert scanned == ["watched"]  # only the watched one is scope-scanned
+    assert snap.programs["ignored"].scopes == {}
 
 
 @pytest.mark.asyncio
@@ -82,6 +104,6 @@ async def test_per_program_error_reuses_previous():
         return httpx.Response(500)  # scopes fail
 
     client = H1Client("id", "tok", transport=httpx.MockTransport(handler))
-    snap = await client.fetch_private_snapshot(previous=prev)
+    snap = await client.fetch_private_snapshot(previous=prev, scope_handles={"priv"})
     await client.aclose()
     assert snap.programs["priv"].scopes["URL:a.com"].max_severity == "low"

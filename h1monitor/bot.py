@@ -15,10 +15,18 @@ BOT_COMMANDS = [
     BotCommand("setup", "How to add your HackerOne API key"),
     BotCommand("setapikey", "Set HackerOne API key (message auto-deleted)"),
     BotCommand("config", "Choose which alerts you receive"),
+    BotCommand("watch", "Deep-scan a private program's scopes: /watch <handle>"),
+    BotCommand("unwatch", "Stop scope-scanning a private program: /unwatch <handle>"),
+    BotCommand("watchlist", "Show private programs being scope-scanned"),
     BotCommand("programs", "How many programs are monitored"),
     BotCommand("status", "Poll interval, credentials, settings"),
     BotCommand("help", "List all commands"),
 ]
+
+
+def parse_handle_arg(text: str) -> str | None:
+    parts = (text or "").split()
+    return parts[1] if len(parts) == 2 else None
 
 
 def is_owner(chat_id: int | None, store: Store, settings: Settings) -> bool:
@@ -136,6 +144,46 @@ def build_application(settings: Settings, store: Store) -> Application:
         await q.answer("Updated")
         await q.edit_message_reply_markup(build_config_keyboard(prefs))
 
+    async def watch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not guard(update):
+            return
+        handle = parse_handle_arg(update.message.text)
+        if not handle:
+            await update.message.reply_text("Usage: /watch <program-handle>")
+            return
+        prefs = store.get_preferences()
+        prefs.private_watch = prefs.private_watch | {handle}
+        store.save_preferences(prefs)
+        await update.message.reply_text(
+            f"👁 Now scope-scanning private program '{handle}'. "
+            f"({len(prefs.private_watch)} watched; applies on the next private poll.)"
+        )
+
+    async def unwatch(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not guard(update):
+            return
+        handle = parse_handle_arg(update.message.text)
+        if not handle:
+            await update.message.reply_text("Usage: /unwatch <program-handle>")
+            return
+        prefs = store.get_preferences()
+        prefs.private_watch = prefs.private_watch - {handle}
+        store.save_preferences(prefs)
+        await update.message.reply_text(f"🚫 Stopped scope-scanning '{handle}'.")
+
+    async def watchlist(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not guard(update):
+            return
+        watched = sorted(store.get_preferences().private_watch)
+        if watched:
+            await update.message.reply_text(
+                "Scope-scanning these private programs:\n" + "\n".join(f"• {h}" for h in watched)
+            )
+        else:
+            await update.message.reply_text(
+                "No private programs are being scope-scanned. Add one with /watch <handle>."
+            )
+
     async def programs(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
@@ -143,8 +191,10 @@ def build_application(settings: Settings, store: Store) -> Application:
         priv = store.load_snapshot("private")
         npub = len(pub.programs) if pub else 0
         npriv = len(priv.programs) if priv else 0
+        nwatch = len(store.get_preferences().private_watch)
         await update.message.reply_text(
-            f"Monitoring {npub} public + {npriv} private program(s)."
+            f"Monitoring {npub} public + {npriv} private program(s).\n"
+            f"Scope-scanning {nwatch} private program(s) (see /watchlist)."
         )
 
     async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -162,13 +212,24 @@ def build_application(settings: Settings, store: Store) -> Application:
         if not guard(update):
             return
         await update.message.reply_text(
-            "/start /setup /setapikey /config /programs /status /help"
+            "/start — status & setup\n"
+            "/setapikey <id> <token> — set API key (auto-deleted)\n"
+            "/config — toggle which alerts you get\n"
+            "/watch <handle> — scope-scan a private program\n"
+            "/unwatch <handle> — stop scope-scanning one\n"
+            "/watchlist — list scope-scanned private programs\n"
+            "/programs — counts\n"
+            "/status — settings\n"
+            "/help — this list"
         )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setup", setup))
     app.add_handler(CommandHandler("setapikey", setapikey))
     app.add_handler(CommandHandler("config", config))
+    app.add_handler(CommandHandler("watch", watch))
+    app.add_handler(CommandHandler("unwatch", unwatch))
+    app.add_handler(CommandHandler("watchlist", watchlist))
     app.add_handler(CommandHandler("programs", programs))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("help", help_cmd))

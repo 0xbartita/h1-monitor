@@ -22,8 +22,10 @@ class FakeNotifier:
 class FakePrivate:
     def __init__(self, snap):
         self._snap = snap
+        self.scope_handles = "unset"
 
-    async def fetch_private_snapshot(self, previous=None):
+    async def fetch_private_snapshot(self, previous=None, scope_handles=None):
+        self.scope_handles = scope_handles
         return self._snap
 
 
@@ -60,6 +62,19 @@ async def test_private_second_run_emits_state_change(tmp_path):
     st.save_snapshot("private", Snapshot({"acme": _prog("acme", "open")}))
     await run_private_cycle(st, FakePrivate(Snapshot({"acme": _prog("acme", "paused")})), n)
     assert any("state" in c.summary for c in n.changes)
+
+
+@pytest.mark.asyncio
+async def test_private_cycle_passes_watchlist_as_scope_handles(tmp_path):
+    from h1monitor.models import Preferences
+    st = _store(tmp_path)
+    prefs = Preferences.defaults()
+    prefs.private_watch = frozenset({"acme"})
+    st.save_preferences(prefs)
+    st.save_snapshot("private", Snapshot({"acme": _prog("acme")}))
+    fake = FakePrivate(Snapshot({"acme": _prog("acme")}))
+    await run_private_cycle(st, fake, FakeNotifier())
+    assert fake.scope_handles == {"acme"}
 
 
 @pytest.mark.asyncio
