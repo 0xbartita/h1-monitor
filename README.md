@@ -12,10 +12,13 @@ It watches two sources:
 2. **Your private programs** — the invite-only (`soft_launched`) programs your API key can
    see. **All of them are monitored automatically**, both at the program level (new invite,
    paused, bounty on/off) and at the **scope level** (scope added/removed/changed). Scope
-   details need one API call per program, so the sweep runs gently (low concurrency +
-   patient rate-limit backoff) in the background. If you have a very large private portfolio
-   and want to cut API usage, you can *optionally* narrow scope-scanning to a chosen few with
-   `/watch <handle>` — but you never have to.
+   details need one API call per program, and HackerOne rate-limits that endpoint when it's
+   hit in bursts — so h1monitor scans them **one at a time, gently self-throttled** (backs
+   off the moment HackerOne pushes back, eases up when clear). A full sweep of a few hundred
+   private programs takes **~10–15 min** and never trips the limiter; it runs quietly in the
+   background. If you have a huge private portfolio and want to cut API usage further, you can
+   *optionally* narrow scope-scanning to a chosen few with `/watch <handle>` — but you never
+   have to.
 
 You choose what you receive live via a Telegram `/config` command, and you supply your
 HackerOne API key **through the bot**.
@@ -54,6 +57,10 @@ before you set credentials.
 On the very first poll, h1monitor establishes a **silent baseline** (so you aren't spammed
 with thousands of existing programs). You'll get one "Baseline established…" message per
 source. Real change alerts begin from the next poll onward.
+
+The **private** baseline scans every private program's scopes one at a time, so it can take
+**~10–15 min** to finish the first time (and on each later refresh). `/programs` shows the
+private scope count climbing to its full total once the sweep completes.
 
 ## Telegram commands
 
@@ -140,6 +147,10 @@ Control it: `systemctl --user {status,restart,stop} h1monitor`. Watch it:
   need occasional maintenance if HackerOne changes it. Everything else rides the official API.
 - The Hacker API exposes bounty **eligibility** and **max severity**, not dollar bounty-table
   amounts — so `bounty_changed` reflects eligibility/severity, not exact payouts.
+- HackerOne's per-program scope endpoint enforces a hidden burst rate-limit, so private
+  scope-scanning is deliberately **sequential and slow** (~10–15 min per full sweep). This is
+  by design — it's the price of never getting rate-limited. Private programs therefore refresh
+  less often than public ones (`private_interval_minutes`, default 120).
 
 ## Development
 
