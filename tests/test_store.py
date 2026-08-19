@@ -47,22 +47,26 @@ def test_owner_chat_id_roundtrip(store):
     assert store.get_owner_chat_id() == 99
 
 
-def test_api_snapshot_roundtrip(store):
+def test_snapshot_roundtrip_preserves_scopes_and_launch_date(store):
     prog = Program(
         "acme", "Acme", "open", True, "USD", "policy",
         {"URL:a.com": Scope("URL", "a.com", True, True, "high",
                             None, None, None, None, "2026-01-01")},
+        "2026-08-18",
     )
-    store.save_api_snapshot(Snapshot({"acme": prog}))
-    loaded = store.load_api_snapshot()
+    store.save_snapshot("public", Snapshot({"acme": prog}))
+    loaded = store.load_snapshot("public")
     assert loaded.programs["acme"].scopes["URL:a.com"].max_severity == "high"
+    assert loaded.programs["acme"].started_accepting_at == "2026-08-18"
 
 
-def test_directory_baseline_and_handles(store):
-    assert store.has_directory_baseline() is False
-    store.save_directory_handles({"a", "b"})
-    assert store.has_directory_baseline() is True
-    assert store.load_directory_handles() == {"a", "b"}
+def test_baseline_is_per_kind(store):
+    assert store.has_baseline("public") is False
+    assert store.has_baseline("private") is False
+    store.save_snapshot("public", Snapshot({"a": Program("a", "A", "open", True, None, None, {})}))
+    assert store.has_baseline("public") is True
+    assert store.has_baseline("private") is False
+    assert store.load_snapshot("private") is None
 
 
 def test_alert_once(store):

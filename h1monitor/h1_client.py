@@ -70,29 +70,26 @@ class H1Client:
             url = (body.get("links") or {}).get("next")
         return items
 
-    async def fetch_snapshot(
-        self,
-        previous: Snapshot | None = None,
-        scope_handles: set[str] | None = None,
-    ) -> Snapshot:
-        """Fetch all accessible programs (program-level fields always), plus
-        structured scopes. Scope fetches run concurrently (bounded by
-        `concurrency`). If `scope_handles` is given, only those handles get a
-        live scope fetch; others reuse their previous scopes — this keeps the
-        cycle fast when the key can see thousands of programs.
-        """
-        progs = [
-            p for p in map(_parse_program_item, await self._paginate("/hackers/programs"))
-            if p.handle
-        ]
+    async def fetch_private_snapshot(self, previous: Snapshot | None = None) -> Snapshot:
+        """Fetch the operator's PRIVATE programs (state != "public_mode") with
+        their structured scopes. Public programs are skipped — they are covered
+        far more cheaply by the directory source. Scope fetches run concurrently;
+        a per-program failure reuses the previous scopes instead of failing the
+        whole cycle."""
+        progs: list[Program] = []
+        for item in await self._paginate("/hackers/programs"):
+            attrs = item.get("attributes", {})
+            if attrs.get("state") == "public_mode":
+                continue
+            prog = _parse_program_item(item)
+            if not prog.handle:
+                continue
+            prog.started_accepting_at = attrs.get("started_accepting_at")
+            progs.append(prog)
+
         sem = asyncio.Semaphore(self._concurrency)
 
         async def load(prog: Program) -> Program:
-            prev = previous.programs.get(prog.handle) if previous else None
-            if scope_handles is not None and prog.handle not in scope_handles:
-                if prev is not None:
-                    prog.scopes = prev.scopes
-                return prog
             async with sem:
                 try:
                     items = await self._paginate(
@@ -100,6 +97,7 @@ class H1Client:
                     )
                     prog.scopes = {s.key: s for s in map(_parse_scope_item, items)}
                 except Exception:  # noqa: BLE001 — one program must not fail the cycle
+                    prev = previous.programs.get(prog.handle) if previous else None
                     if prev is not None:
                         prog.scopes = prev.scopes
             return prog

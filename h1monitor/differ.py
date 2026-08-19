@@ -20,17 +20,36 @@ def _mk(types, prog: Program, summary: str, details: dict) -> Change:
     )
 
 
-def diff_api(prev: Snapshot | None, curr: Snapshot) -> list[Change]:
+def _added_change(p: Program, new_program_type: ChangeType) -> Change:
+    if new_program_type == ChangeType.NEW_PUBLIC_PROGRAM:
+        dp = DirectoryProgram(
+            p.handle, p.name, bool(p.offers_bounties), p.submission_state,
+            p.started_accepting_at, f"https://hackerone.com/{p.handle}",
+        )
+        return Change(
+            frozenset({ChangeType.NEW_PUBLIC_PROGRAM}), p.handle, p.name,
+            p.submission_state, f"New public program: {p.name}",
+            {"started_accepting_at": p.started_accepting_at}, directory=dp,
+        )
+    return _mk({new_program_type}, p, f"{p.name} is now accessible to you", {})
+
+
+def diff_snapshot(
+    prev: Snapshot | None,
+    curr: Snapshot,
+    new_program_type: ChangeType = ChangeType.PROGRAM_ADDED,
+) -> list[Change]:
+    """Diff two program snapshots. Newly-appeared programs are tagged with
+    `new_program_type` (NEW_PUBLIC_PROGRAM for the public directory source,
+    PROGRAM_ADDED for the private API source). First run (prev is None) is
+    silent."""
     if prev is None:
         return []
     changes: list[Change] = []
     prev_h, curr_h = set(prev.programs), set(curr.programs)
 
     for h in sorted(curr_h - prev_h):
-        p = curr.programs[h]
-        changes.append(
-            _mk({ChangeType.PROGRAM_ADDED}, p, f"{p.name} is now accessible to you", {})
-        )
+        changes.append(_added_change(curr.programs[h], new_program_type))
     for h in sorted(prev_h - curr_h):
         p = prev.programs[h]
         changes.append(
@@ -39,10 +58,13 @@ def diff_api(prev: Snapshot | None, curr: Snapshot) -> list[Change]:
                 p.submission_state, f"{p.name} is no longer accessible", {},
             )
         )
-
     for h in sorted(prev_h & curr_h):
         changes.extend(_diff_program(prev.programs[h], curr.programs[h]))
     return changes
+
+
+def diff_api(prev: Snapshot | None, curr: Snapshot) -> list[Change]:
+    return diff_snapshot(prev, curr, ChangeType.PROGRAM_ADDED)
 
 
 def _diff_program(prev: Program, curr: Program) -> list[Change]:
@@ -104,21 +126,3 @@ def _diff_scope(prog: Program, key: str, a: Scope, b: Scope) -> list[Change]:
     if not types:
         return []
     return [_mk(types, prog, f"scope modified: {key}", {"scope_key": key, "fields": diffs})]
-
-
-def diff_directory(
-    prev_handles: set[str], curr: list[DirectoryProgram], first_run: bool
-) -> list[Change]:
-    if first_run:
-        return []
-    out: list[Change] = []
-    for p in curr:
-        if p.handle not in prev_handles:
-            out.append(
-                Change(
-                    frozenset({ChangeType.NEW_PUBLIC_PROGRAM}), p.handle, p.name,
-                    p.submission_state, f"New public program: {p.name}",
-                    {"started_accepting_at": p.started_accepting_at}, directory=p,
-                )
-            )
-    return out

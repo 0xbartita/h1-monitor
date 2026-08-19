@@ -44,6 +44,7 @@ def _snapshot_to_json(s: Snapshot) -> str:
                 "offers_bounties": p.offers_bounties,
                 "currency": p.currency,
                 "policy": p.policy,
+                "started_accepting_at": p.started_accepting_at,
                 "scopes": {k: _scope_to_dict(v) for k, v in p.scopes.items()},
             }
             for h, p in s.programs.items()
@@ -59,6 +60,7 @@ def _snapshot_from_json(raw: str) -> Snapshot:
             pd["handle"], pd["name"], pd.get("submission_state"),
             pd.get("offers_bounties"), pd.get("currency"), pd.get("policy"),
             {k: _scope_from_dict(v) for k, v in pd.get("scopes", {}).items()},
+            pd.get("started_accepting_at"),
         )
     return Snapshot(progs)
 
@@ -129,24 +131,16 @@ class Store:
     def set_owner_chat_id(self, chat_id: int) -> None:
         self._set("owner_chat_id", str(chat_id))
 
-    # --- api snapshot ---
-    def load_api_snapshot(self) -> Snapshot | None:
-        raw = self._get("api_snapshot")
+    # --- snapshots (kind is "public" or "private") ---
+    def load_snapshot(self, kind: str) -> Snapshot | None:
+        raw = self._get(f"snapshot:{kind}")
         return _snapshot_from_json(raw) if raw else None
 
-    def save_api_snapshot(self, s: Snapshot) -> None:
-        self._set("api_snapshot", _snapshot_to_json(s))
+    def save_snapshot(self, kind: str, s: Snapshot) -> None:
+        self._set(f"snapshot:{kind}", _snapshot_to_json(s))
 
-    # --- directory ---
-    def has_directory_baseline(self) -> bool:
-        return self._get("directory_handles") is not None
-
-    def load_directory_handles(self) -> set[str]:
-        raw = self._get("directory_handles")
-        return set(json.loads(raw)) if raw else set()
-
-    def save_directory_handles(self, handles: set[str]) -> None:
-        self._set("directory_handles", json.dumps(sorted(handles)))
+    def has_baseline(self, kind: str) -> bool:
+        return self._get(f"snapshot:{kind}") is not None
 
     # --- poll metadata ---
     def record_poll(self, source: str, ts: float) -> None:

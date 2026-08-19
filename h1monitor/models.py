@@ -67,6 +67,7 @@ class Program:
     currency: str | None
     policy: str | None
     scopes: dict[str, Scope] = field(default_factory=dict)
+    started_accepting_at: str | None = None
 
 
 @dataclass(frozen=True)

@@ -139,9 +139,13 @@ def build_application(settings: Settings, store: Store) -> Application:
     async def programs(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
-        snap = store.load_api_snapshot()
-        n = len(snap.programs) if snap else 0
-        await update.message.reply_text(f"Monitoring {n} accessible program(s).")
+        pub = store.load_snapshot("public")
+        priv = store.load_snapshot("private")
+        npub = len(pub.programs) if pub else 0
+        npriv = len(priv.programs) if priv else 0
+        await update.message.reply_text(
+            f"Monitoring {npub} public + {npriv} private program(s)."
+        )
 
     async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):

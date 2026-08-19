@@ -15,8 +15,8 @@ from h1monitor.bot import build_application, BOT_COMMANDS
 from h1monitor.notifier import Notifier
 from h1monitor.h1_client import H1Client
 from h1monitor.directory_client import DirectoryClient
-from h1monitor.poller import api_poll_loop
-from h1monitor.directory_poller import directory_poll_loop
+from h1monitor.poller import private_poll_loop
+from h1monitor.directory_poller import public_poll_loop
 
 log = logging.getLogger("h1monitor")
 
@@ -115,8 +115,8 @@ async def main_async(base_dir: str = ".") -> None:
 
     try:
         await asyncio.gather(
-            api_poll_loop(store, h1_provider, notifier, stop),
-            directory_poll_loop(store, dir_provider, notifier, stop),
+            public_poll_loop(store, dir_provider, notifier, stop),
+            private_poll_loop(store, h1_provider, notifier, stop),
         )
     finally:
         await app.updater.stop()

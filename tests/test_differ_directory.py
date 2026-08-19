@@ -1,26 +1,29 @@
-from h1monitor.differ import diff_directory
-from h1monitor.models import DirectoryProgram, ChangeType
+from h1monitor.differ import diff_snapshot
+from h1monitor.models import Snapshot, Program, ChangeType
 
 
-def _dp(handle, state="open"):
-    return DirectoryProgram(
-        handle, handle.title(), True, state, "2026-08-18",
-        f"https://hackerone.com/{handle}",
-    )
+def _pub(handle, date="2026-08-18", bounties=True):
+    return Program(handle, handle.title(), "open", bounties, None, None, {}, date)
 
 
 def test_first_run_silent():
-    assert diff_directory(set(), [_dp("a"), _dp("b")], first_run=True) == []
+    curr = Snapshot({"a": _pub("a"), "b": _pub("b")})
+    assert diff_snapshot(None, curr, ChangeType.NEW_PUBLIC_PROGRAM) == []
 
 
-def test_new_program_detected():
-    changes = diff_directory({"a"}, [_dp("a"), _dp("vercel")], first_run=False)
+def test_new_public_program_detected_with_launch_date():
+    prev = Snapshot({"a": _pub("a")})
+    curr = Snapshot({"a": _pub("a"), "vercel": _pub("vercel", date="2026-08-18")})
+    changes = diff_snapshot(prev, curr, ChangeType.NEW_PUBLIC_PROGRAM)
     assert len(changes) == 1
     c = changes[0]
     assert ChangeType.NEW_PUBLIC_PROGRAM in c.types
     assert c.program_handle == "vercel"
     assert c.directory.started_accepting_at == "2026-08-18"
+    assert c.directory.url == "https://hackerone.com/vercel"
 
 
 def test_no_new_programs():
-    assert diff_directory({"a", "b"}, [_dp("a"), _dp("b")], first_run=False) == []
+    prev = Snapshot({"a": _pub("a"), "b": _pub("b")})
+    curr = Snapshot({"a": _pub("a"), "b": _pub("b")})
+    assert diff_snapshot(prev, curr, ChangeType.NEW_PUBLIC_PROGRAM) == []

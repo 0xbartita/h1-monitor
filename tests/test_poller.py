@@ -2,9 +2,9 @@ import pytest
 from cryptography.fernet import Fernet
 
 from h1monitor.store import Store
-from h1monitor.models import Snapshot, Program, DirectoryProgram
-from h1monitor.poller import run_api_cycle
-from h1monitor.directory_poller import run_directory_cycle
+from h1monitor.models import Snapshot, Program
+from h1monitor.poller import run_private_cycle
+from h1monitor.directory_poller import run_public_cycle
 
 
 class FakeNotifier:
@@ -19,88 +19,66 @@ class FakeNotifier:
         self.texts.append(text)
 
 
-class FakeH1:
+class FakePrivate:
     def __init__(self, snap):
         self._snap = snap
-        self.scope_handles = "unset"
 
-    async def fetch_snapshot(self, previous=None, scope_handles=None):
-        self.scope_handles = scope_handles
+    async def fetch_private_snapshot(self, previous=None):
         return self._snap
 
 
-class FakeDir:
-    def __init__(self, progs):
-        self._progs = progs
+class FakePublic:
+    def __init__(self, snap):
+        self._snap = snap
 
-    async def fetch_all(self):
-        return self._progs
+    async def fetch_public_snapshot(self):
+        return self._snap
 
 
 def _store(tmp_path):
     return Store(str(tmp_path / "p.db"), Fernet.generate_key())
 
 
+def _prog(handle, state="open"):
+    return Program(handle, handle.title(), state, True, "USD", "p", {})
+
+
 @pytest.mark.asyncio
-async def test_api_first_run_baseline_no_changes(tmp_path):
+async def test_private_first_run_baseline_no_changes(tmp_path):
     st = _store(tmp_path)
     n = FakeNotifier()
-    snap = Snapshot({"acme": Program("acme", "Acme", "open", True, "USD", "p", {})})
-    await run_api_cycle(st, FakeH1(snap), n)
+    await run_private_cycle(st, FakePrivate(Snapshot({"acme": _prog("acme")})), n)
     assert n.changes == []
     assert any("Baseline" in t for t in n.texts)
-    assert st.load_api_snapshot() is not None
+    assert st.load_snapshot("private") is not None
 
 
 @pytest.mark.asyncio
-async def test_api_second_run_emits_changes(tmp_path):
+async def test_private_second_run_emits_state_change(tmp_path):
     st = _store(tmp_path)
     n = FakeNotifier()
-    st.save_api_snapshot(
-        Snapshot({"acme": Program("acme", "Acme", "open", True, "USD", "p", {})})
-    )
-    snap = Snapshot({"acme": Program("acme", "Acme", "paused", True, "USD", "p", {})})
-    await run_api_cycle(st, FakeH1(snap), n)
+    st.save_snapshot("private", Snapshot({"acme": _prog("acme", "open")}))
+    await run_private_cycle(st, FakePrivate(Snapshot({"acme": _prog("acme", "paused")})), n)
     assert any("state" in c.summary for c in n.changes)
 
 
 @pytest.mark.asyncio
-async def test_api_cycle_passes_allowlist_as_scope_handles(tmp_path):
-    from h1monitor.models import Preferences
-    st = _store(tmp_path)
-    prefs = Preferences.defaults()
-    prefs.allowlist = frozenset({"acme", "beta"})
-    st.save_preferences(prefs)
-    st.save_api_snapshot(Snapshot({"acme": Program("acme", "Acme", "open", True, "USD", "p", {})}))
-    fake = FakeH1(Snapshot({"acme": Program("acme", "Acme", "open", True, "USD", "p", {})}))
-    await run_api_cycle(st, fake, FakeNotifier())
-    assert fake.scope_handles == {"acme", "beta"}
-
-
-@pytest.mark.asyncio
-async def test_directory_first_run_silent(tmp_path):
+async def test_public_first_run_silent(tmp_path):
     st = _store(tmp_path)
     n = FakeNotifier()
-    await run_directory_cycle(
-        st, FakeDir([DirectoryProgram("a", "A", True, "open", "d", "u")]), n
-    )
+    await run_public_cycle(st, FakePublic(Snapshot({"a": _prog("a")})), n)
     assert n.changes == []
-    assert st.has_directory_baseline() is True
+    assert st.has_baseline("public") is True
 
 
 @pytest.mark.asyncio
-async def test_directory_second_run_new_program(tmp_path):
+async def test_public_second_run_new_program(tmp_path):
     st = _store(tmp_path)
     n = FakeNotifier()
-    st.save_directory_handles({"a"})
-    await run_directory_cycle(
-        st,
-        FakeDir(
-            [
-                DirectoryProgram("a", "A", True, "open", "d", "u"),
-                DirectoryProgram("vercel", "Vercel", True, "open", "2026-08-18", "u"),
-            ]
-        ),
-        n,
+    st.save_snapshot("public", Snapshot({"a": _prog("a")}))
+    await run_public_cycle(
+        st, FakePublic(Snapshot({"a": _prog("a"), "vercel": _prog("vercel")})), n
     )
+    from h1monitor.models import ChangeType
     assert [c.program_handle for c in n.changes] == ["vercel"]
+    assert all(ChangeType.NEW_PUBLIC_PROGRAM in c.types for c in n.changes)
