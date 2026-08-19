@@ -11,6 +11,13 @@ def escape_html(s: str) -> str:
     return escape(s or "")
 
 
+def describe_error(e: BaseException) -> str:
+    """Human-readable error text. Some httpx transport errors (ReadError,
+    ConnectError, …) stringify to "", which would make an alert read
+    "…failed:" with nothing after it — fall back to the exception type."""
+    return str(e).strip() or e.__class__.__name__
+
+
 def _program_url(c: Change) -> str:
     if c.directory and c.directory.url:
         return c.directory.url

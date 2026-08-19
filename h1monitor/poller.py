@@ -4,7 +4,7 @@ import asyncio
 import time
 
 from h1monitor.store import Store
-from h1monitor.notifier import Notifier, escape_html
+from h1monitor.notifier import Notifier, escape_html, describe_error
 from h1monitor.differ import diff_snapshot
 from h1monitor.filters import filter_changes
 from h1monitor.models import ChangeType
@@ -51,7 +51,7 @@ async def private_poll_loop(
             except Exception as e:  # noqa: BLE001
                 if store.mark_alert_sent("private-fetch-failed"):
                     await notifier.send_text(
-                        f"⚠️ <b>Private sync failed:</b> {escape_html(str(e))}"
+                        f"⚠️ <b>Private sync failed:</b> {escape_html(describe_error(e))}"
                     )
             finally:
                 await client.aclose()

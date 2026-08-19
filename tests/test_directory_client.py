@@ -63,6 +63,41 @@ async def test_fetch_public_snapshot_paginates():
 
 
 @pytest.mark.asyncio
+async def test_fetch_public_snapshot_retries_transient_network_error():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadError("transient blip", request=request)
+        if request.url.path == "/directory/programs":
+            return httpx.Response(200, text='<meta name="csrf-token" content="t">')
+        return httpx.Response(200, json={"data": {"teams": {
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+            "edges": [{"node": {
+                "handle": "acme", "name": "Acme", "offers_bounties": True,
+                "submission_state": "open", "started_accepting_at": "d",
+                "structured_scopes": {"edges": []}}}]}}})
+
+    c = DirectoryClient(transport=httpx.MockTransport(handler), retry_delay=0)
+    snap = await c.fetch_public_snapshot()
+    await c.aclose()
+    assert "acme" in snap.programs   # recovered instead of failing the cycle
+    assert calls["n"] >= 2           # first attempt raised, retry succeeded
+
+
+@pytest.mark.asyncio
+async def test_fetch_public_snapshot_gives_up_after_persistent_errors():
+    def handler(request):
+        raise httpx.ReadError("down", request=request)
+
+    c = DirectoryClient(transport=httpx.MockTransport(handler), retry_delay=0)
+    with pytest.raises(httpx.TransportError):
+        await c.fetch_public_snapshot()
+    await c.aclose()
+
+
+@pytest.mark.asyncio
 async def test_fetch_public_snapshot_raises_on_graphql_errors():
     def handler(request):
         if request.url.path == "/directory/programs":

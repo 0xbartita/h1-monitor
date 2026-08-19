@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 
 import httpx
@@ -8,6 +9,8 @@ from h1monitor.models import Snapshot, Program, Scope
 
 DIRECTORY_PAGE = "/directory/programs"
 GRAPHQL_URL = "/graphql"
+_MAX_TRIES = 4
+_BASE_BACKOFF = 0.5
 _CSRF_RE = re.compile(r'name="csrf-token"\s+content="([^"]+)"')
 _UA = "Mozilla/5.0 (X11; Linux x86_64) h1monitor/0.1"
 
@@ -69,6 +72,8 @@ class DirectoryClient:
         cookie: str | None = None,
         base: str = "https://hackerone.com",
         transport=None,
+        retry_delay: float = _BASE_BACKOFF,
+        max_tries: int = _MAX_TRIES,
     ):
         headers = {"User-Agent": _UA}
         if cookie:
@@ -77,12 +82,30 @@ class DirectoryClient:
             base_url=base, transport=transport, timeout=45.0, headers=headers,
             follow_redirects=True,
         )
+        self._retry_delay = retry_delay
+        self._max_tries = max_tries
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
+    async def _request(self, method: str, url: str, **kw) -> httpx.Response:
+        """One HTTP call, retrying transient network blips and 5xx with backoff.
+        A single flaky read shouldn't abort a whole ~18-page directory sweep."""
+        for attempt in range(self._max_tries):
+            last = attempt == self._max_tries - 1
+            try:
+                resp = await self._client.request(method, url, **kw)
+            except httpx.TransportError:
+                if last:
+                    raise
+            else:
+                if resp.status_code < 500 or last:
+                    return resp
+            await asyncio.sleep(self._retry_delay * (2 ** attempt))
+        raise RuntimeError("unreachable")  # loop always returns or raises
+
     async def _fetch_csrf(self) -> str:
-        r = await self._client.get(DIRECTORY_PAGE)
+        r = await self._request("GET", DIRECTORY_PAGE)
         m = _CSRF_RE.search(r.text)
         return m.group(1) if m else ""
 
@@ -94,8 +117,8 @@ class DirectoryClient:
         programs: dict[str, Program] = {}
         after: str | None = None
         while True:
-            resp = await self._client.post(
-                GRAPHQL_URL,
+            resp = await self._request(
+                "POST", GRAPHQL_URL,
                 headers=headers,
                 json={"query": PUBLIC_QUERY, "variables": {"after": after}},
             )

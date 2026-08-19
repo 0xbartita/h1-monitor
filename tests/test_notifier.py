@@ -95,3 +95,11 @@ async def test_notifier_groups_and_sends():
     )
     assert len(sent) == 2  # grouped by handle: acme, beta
     assert all(m[0] == 42 for m in sent)
+
+
+def test_describe_error_falls_back_to_type_name_when_empty():
+    import httpx
+    from h1monitor.notifier import describe_error
+    # httpx transport errors stringify to "" — must not yield an empty alert
+    assert describe_error(httpx.ReadError("")) == "ReadError"
+    assert describe_error(RuntimeError("boom")) == "boom"
