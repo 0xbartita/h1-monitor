@@ -69,6 +69,14 @@ def test_baseline_is_per_kind(store):
     assert store.load_snapshot("private") is None
 
 
+def test_delete_snapshot_clears_baseline(store):
+    store.save_snapshot("private", Snapshot({"a": Program("a", "A", "open", True, None, None, {})}))
+    assert store.has_baseline("private") is True
+    store.delete_snapshot("private")
+    assert store.has_baseline("private") is False
+    assert store.load_snapshot("private") is None
+
+
 def test_alert_once(store):
     assert store.mark_alert_sent("h1-down") is True
     assert store.mark_alert_sent("h1-down") is False

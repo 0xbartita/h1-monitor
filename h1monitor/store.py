@@ -142,6 +142,12 @@ class Store:
     def has_baseline(self, kind: str) -> bool:
         return self._get(f"snapshot:{kind}") is not None
 
+    def delete_snapshot(self, kind: str) -> None:
+        """Drop a baseline so the next cycle re-establishes it silently."""
+        with self._lock:
+            self._db.execute("DELETE FROM kv WHERE key=?", (f"snapshot:{kind}",))
+            self._db.commit()
+
     # --- poll metadata ---
     def record_poll(self, source: str, ts: float) -> None:
         self._set(f"last_poll:{source}", str(ts))

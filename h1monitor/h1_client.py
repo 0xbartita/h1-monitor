@@ -6,7 +6,17 @@ import httpx
 
 from h1monitor.models import Snapshot, Program, Scope
 
-_MAX_TRIES = 3
+_MAX_TRIES = 5
+_MAX_BACKOFF = 30.0
+
+# Per-program scope calls hit a hidden token-bucket: bursting trips it instantly,
+# but steady sequential requests are fine (measured: 80 in a row @0.35s gap, zero
+# 429s). The endpoint is slow (~2s/request), so a full private sweep takes minutes
+# — that's the price of not rate-limiting. Pacing is adaptive: back off on 429,
+# ease back toward the floor on clean successes.
+_SCOPE_BASE_GAP = 0.35
+_SCOPE_MAX_GAP = 5.0
+_SCOPE_MAX_TRIES = 6
 
 
 def _parse_program_item(item: dict) -> Program:
@@ -35,13 +45,14 @@ class H1Client:
         token: str,
         base_url: str = "https://api.hackerone.com/v1",
         transport=None,
-        concurrency: int = 8,
+        scope_delay: float = _SCOPE_BASE_GAP,
     ):
         self._client = httpx.AsyncClient(
             auth=(username, token), base_url=base_url, transport=transport,
             timeout=30.0, headers={"Accept": "application/json"},
         )
-        self._concurrency = concurrency
+        self._scope_gap = scope_delay   # floor / base pace between scope calls
+        self._delay = scope_delay       # current (adaptive) pace
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -51,10 +62,13 @@ class H1Client:
         for attempt in range(_MAX_TRIES):
             resp = await self._client.get(url)
             if resp.status_code == 429 and attempt < _MAX_TRIES - 1:
-                await asyncio.sleep(float(resp.headers.get("Retry-After", "1")))
+                # Rate limited — wait out HackerOne's Retry-After (capped so a
+                # single hostile header can't wedge the whole scan).
+                wait = min(float(resp.headers.get("Retry-After", "2")), _MAX_BACKOFF)
+                await asyncio.sleep(wait)
                 continue
             if resp.status_code >= 500 and attempt < _MAX_TRIES - 1:
-                await asyncio.sleep(2**attempt)
+                await asyncio.sleep(min(2**attempt, _MAX_BACKOFF))
                 continue
             resp.raise_for_status()
             return resp.json()
@@ -70,6 +84,48 @@ class H1Client:
             url = (body.get("links") or {}).get("next")
         return items
 
+    async def _get_scope_page(self, url: str) -> dict:
+        """One scope page, self-throttled. Sleeps the adaptive gap before each
+        request, backs off + slows down on 429, retries transient timeouts/5xx,
+        and eases the pace back toward the floor after a clean response."""
+        resp = None
+        for attempt in range(_SCOPE_MAX_TRIES):
+            if self._delay:
+                await asyncio.sleep(self._delay)
+            try:
+                resp = await self._client.get(url)
+            except httpx.TimeoutException:
+                if self._scope_gap:
+                    await asyncio.sleep(min(2**attempt, _MAX_BACKOFF))
+                continue
+            if resp.status_code == 429:
+                # Slow the whole sweep down, wait, retry.
+                self._delay = min(self._delay * 1.5 + 0.2, _SCOPE_MAX_GAP)
+                if self._scope_gap:
+                    wait = min(float(resp.headers.get("Retry-After", "5")), _MAX_BACKOFF)
+                    await asyncio.sleep(wait)
+                continue
+            if resp.status_code >= 500:
+                if self._scope_gap:
+                    await asyncio.sleep(min(2**attempt, _MAX_BACKOFF))
+                continue
+            resp.raise_for_status()
+            self._delay = max(self._delay * 0.9, self._scope_gap)
+            return resp.json()
+        if resp is None:
+            raise RuntimeError(f"scope fetch failed (no response): {url}")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _fetch_scopes(self, handle: str) -> list[dict]:
+        items: list[dict] = []
+        url: str | None = f"/hackers/programs/{handle}/structured_scopes?page[size]=100"
+        while url:
+            body = await self._get_scope_page(url)
+            items.extend(body.get("data", []))
+            url = (body.get("links") or {}).get("next")
+        return items
+
     async def fetch_private_snapshot(
         self,
         previous: Snapshot | None = None,
@@ -78,10 +134,17 @@ class H1Client:
         """Fetch the operator's PRIVATE programs (state != "public_mode").
 
         Program-level fields (name/state/bounties) come from the fast list for
-        ALL private programs. Detailed scopes are fetched ONLY for handles in
-        `scope_handles` (the /watch list) — HackerOne rate-limits per-program
-        scope calls, so deep-scanning hundreds of private programs every cycle is
-        not viable. Unwatched programs keep their previous scopes (or none)."""
+        ALL private programs. Detailed scopes are fetched per program
+        SEQUENTIALLY and self-throttled — HackerOne's scope endpoint trips a
+        hidden rate-limiter when hit in bursts, so a full sweep of hundreds of
+        private programs takes minutes but never rate-limits.
+
+        `scope_handles` selects WHICH programs get deep-scanned for scopes:
+          * None  → scan every private program (the default).
+          * a set → scan only those handles (an opt-in narrowing to cut API
+                    load); the rest keep their previous scopes.
+          * empty set → scan none.
+        Programs that aren't scanned keep their previous scopes (or none)."""
         progs: list[Program] = []
         for item in await self._paginate("/hackers/programs?page[size]=100"):
             attrs = item.get("attributes", {})
@@ -93,25 +156,18 @@ class H1Client:
             prog.started_accepting_at = attrs.get("started_accepting_at")
             progs.append(prog)
 
-        watch = scope_handles or set()
-        sem = asyncio.Semaphore(self._concurrency)
-
-        async def load(prog: Program) -> Program:
+        for prog in progs:  # sequential — no bursts, so the limiter stays happy
             prev = previous.programs.get(prog.handle) if previous else None
-            if prog.handle not in watch:
+            scan = scope_handles is None or prog.handle in scope_handles
+            if not scan:
                 if prev is not None:
                     prog.scopes = prev.scopes
-                return prog
-            async with sem:
-                try:
-                    items = await self._paginate(
-                        f"/hackers/programs/{prog.handle}/structured_scopes?page[size]=100"
-                    )
-                    prog.scopes = {s.key: s for s in map(_parse_scope_item, items)}
-                except Exception:  # noqa: BLE001 — one program must not fail the cycle
-                    if prev is not None:
-                        prog.scopes = prev.scopes
-            return prog
+                continue
+            try:
+                items = await self._fetch_scopes(prog.handle)
+                prog.scopes = {s.key: s for s in map(_parse_scope_item, items)}
+            except Exception:  # noqa: BLE001 — one program must not fail the cycle
+                if prev is not None:
+                    prog.scopes = prev.scopes
 
-        loaded = await asyncio.gather(*(load(p) for p in progs))
-        return Snapshot({p.handle: p for p in loaded})
+        return Snapshot({p.handle: p for p in progs})

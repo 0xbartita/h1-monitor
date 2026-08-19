@@ -10,10 +10,12 @@ It watches two sources:
    programs launching platform-wide (announced with launch dates), plus scope, bounty, and
    state changes across every public program.
 2. **Your private programs** — the invite-only (`soft_launched`) programs your API key can
-   see. All get **program-level** monitoring (new invite, paused, bounty on/off) cheaply
-   from the fast list. Because HackerOne rate-limits per-program scope calls, **detailed
-   scope scanning of private programs is opt-in**: add ones you care about with
-   `/watch <handle>`.
+   see. **All of them are monitored automatically**, both at the program level (new invite,
+   paused, bounty on/off) and at the **scope level** (scope added/removed/changed). Scope
+   details need one API call per program, so the sweep runs gently (low concurrency +
+   patient rate-limit backoff) in the background. If you have a very large private portfolio
+   and want to cut API usage, you can *optionally* narrow scope-scanning to a chosen few with
+   `/watch <handle>` — but you never have to.
 
 You choose what you receive live via a Telegram `/config` command, and you supply your
 HackerOne API key **through the bot**.
@@ -61,17 +63,18 @@ source. Real change alerts begin from the next poll onward.
 | `/setup` | Explain how to submit credentials |
 | `/setapikey <id> <token>` | Set H1 credentials (message auto-deleted) |
 | `/config` | Inline toggles for every change type + `exclude_paused` |
-| `/watch <handle>` | Start detailed scope-scanning of a private program |
-| `/unwatch <handle>` | Stop scope-scanning a private program |
-| `/watchlist` | List private programs being scope-scanned |
+| `/watch <handle>` | *(Advanced)* Limit scope-scanning to only the programs you list |
+| `/unwatch <handle>` | Drop one from the limit (empty list = scan all again) |
+| `/watchlist` | Show scope-scan coverage (default: all private programs) |
 | `/programs` | Counts of public + private programs monitored |
 | `/status` | Intervals, whether creds are set, `exclude_paused` |
 | `/help` | Command list |
 
 **Public vs private scope monitoring:** every *public* program's scopes are always
-monitored (they come free with the bulk directory query). *Private* programs are monitored
-at the program level by default; use `/watch` to also track a specific private program's
-scopes. Public refreshes every `poll_interval_minutes` (default 30); private refreshes every
+monitored (they come free with the bulk directory query). Every *private* program's scopes
+are monitored too, by default — no setup needed. `/watch` exists only as an optional way to
+*limit* private scope-scanning to a chosen subset if you want to reduce API load. Public
+refreshes every `poll_interval_minutes` (default 30); private refreshes every
 `private_interval_minutes` (default 120), since it uses your rate-limited API key.
 
 ## Change types (all default on, toggle in `/config`)
