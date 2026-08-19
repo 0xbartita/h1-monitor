@@ -20,10 +20,9 @@ def _format_new_program(c: Change) -> str:
     )
     name = escape_html(dp.name if dp else c.program_name)
     if dp and dp.started_accepting_at:
-        body = (
-            f"<b>{name}</b> launched on {escape_html(dp.started_accepting_at)} "
-            f"as a {kind}."
-        )
+        # started_accepting_at arrives as a full ISO timestamp; show date only.
+        date = dp.started_accepting_at[:10]
+        body = f"<b>{name}</b> launched on {escape_html(date)} as a {kind}."
     else:
         body = f"<b>{name}</b> was newly observed as a {kind}."
     url = dp.url if dp and dp.url else f"https://hackerone.com/{c.program_handle}"

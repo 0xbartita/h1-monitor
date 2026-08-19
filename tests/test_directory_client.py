@@ -57,12 +57,16 @@ async def test_fetch_all_paginates():
     ]
     calls = {"n": 0}
 
+    seen = {}
+
     def handler(request):
         if request.url.path == "/directory/programs":
             return httpx.Response(
-                200, text="ok",
-                headers={"set-cookie": "s=1", "x-csrf-token": "tok"},
+                200,
+                text='<html><head><meta name="csrf-token" content="tok123"></head></html>',
             )
+        # capture the CSRF header the client sends on the GraphQL POST
+        seen["csrf"] = request.headers.get("x-csrf-token")
         i = calls["n"]
         calls["n"] += 1
         return httpx.Response(200, json=pages[i])
@@ -71,3 +75,4 @@ async def test_fetch_all_paginates():
     progs = await c.fetch_all()
     await c.aclose()
     assert [p.handle for p in progs] == ["a", "b"]
+    assert seen["csrf"] == "tok123"  # CSRF read from the page meta tag, sent on POST

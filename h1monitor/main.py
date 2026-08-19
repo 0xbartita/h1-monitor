@@ -11,7 +11,7 @@ from h1monitor.config import (
     load_settings, Settings, ConfigError, load_dotenv, upsert_env_var,
 )
 from h1monitor.store import Store
-from h1monitor.bot import build_application
+from h1monitor.bot import build_application, BOT_COMMANDS
 from h1monitor.notifier import Notifier
 from h1monitor.h1_client import H1Client
 from h1monitor.directory_client import DirectoryClient
@@ -100,6 +100,9 @@ async def main_async(base_dir: str = ".") -> None:
 
     await app.initialize()
     await app.start()
+    # Register the command list so Telegram shows an autocomplete menu on "/".
+    # (post_init only fires via run_polling(), which we don't use.)
+    await app.bot.set_my_commands(BOT_COMMANDS)
     await app.updater.start_polling()
     log.info("Bot started; polling for commands and changes.")
 

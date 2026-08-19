@@ -1,18 +1,30 @@
 from __future__ import annotations
 
+import re
+
 import httpx
 
 from h1monitor.models import DirectoryProgram
 
+DIRECTORY_PAGE = "/directory/programs"
+GRAPHQL_URL = "/graphql"
+_CSRF_RE = re.compile(r'name="csrf-token"\s+content="([^"]+)"')
+_UA = "Mozilla/5.0 (X11; Linux x86_64) h1monitor/0.1"
+
+# Query shape mirrors HackerOne's public directory (as used by community tools).
+# Variable is $after; results are ordered newest-first by started_accepting_at.
 DIRECTORY_QUERY = """
-query DirectoryQuery($cursor: String) {
-  teams(first: 50, after: $cursor,
+query($after: String) {
+  teams(first: 50, after: $after,
         secure_order_by: {started_accepting_at: {_direction: DESC}},
-        where: {_and: [{submission_state: {_eq: open}},
-                       {_not: {external_program: {_is_null: false}}}]}) {
+        where: {_and: [{_or: [{submission_state: {_eq: open}}, {external_program: {}}]},
+                       {_not: {external_program: {}}},
+                       {_or: [{_and: [{state: {_neq: sandboxed}},
+                                      {state: {_neq: soft_launched}}]},
+                              {external_program: {}}]}]}) {
     pageInfo { hasNextPage endCursor }
-    edges { node { handle name offers_bounties submission_state
-                   started_accepting_at url } }
+    edges { node { id handle name url submission_state offers_bounties
+                   started_accepting_at } }
   }
 }
 """.strip()
@@ -36,35 +48,36 @@ class DirectoryClient:
         base: str = "https://hackerone.com",
         transport=None,
     ):
-        self._client = httpx.AsyncClient(base_url=base, transport=transport, timeout=30.0)
-        self._cookie = cookie
-        self._csrf: str | None = None
+        headers = {"User-Agent": _UA}
+        if cookie:
+            headers["Cookie"] = cookie
+        self._client = httpx.AsyncClient(
+            base_url=base, transport=transport, timeout=30.0, headers=headers,
+            follow_redirects=True,
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def _bootstrap(self) -> None:
-        if self._cookie and self._csrf:
-            return
-        r = await self._client.get("/directory/programs")
-        if self._cookie is None:
-            self._cookie = r.headers.get("set-cookie", "")
-        self._csrf = r.headers.get("x-csrf-token", "")
+    async def _fetch_csrf(self) -> str:
+        """GET the directory page: httpx stores its session cookies in the jar
+        automatically, and the CSRF token is read from the page's meta tag."""
+        r = await self._client.get(DIRECTORY_PAGE)
+        m = _CSRF_RE.search(r.text)
+        return m.group(1) if m else ""
 
     async def fetch_all(self) -> list[DirectoryProgram]:
-        await self._bootstrap()
+        csrf = await self._fetch_csrf()
         headers = {"Content-Type": "application/json"}
-        if self._cookie:
-            headers["Cookie"] = self._cookie
-        if self._csrf:
-            headers["X-Csrf-Token"] = self._csrf
+        if csrf:
+            headers["X-Csrf-Token"] = csrf
         out: list[DirectoryProgram] = []
-        cursor: str | None = None
+        after: str | None = None
         while True:
             resp = await self._client.post(
-                "/graphql",
+                GRAPHQL_URL,
                 headers=headers,
-                json={"query": DIRECTORY_QUERY, "variables": {"cursor": cursor}},
+                json={"query": DIRECTORY_QUERY, "variables": {"after": after}},
             )
             resp.raise_for_status()
             teams = (resp.json().get("data") or {}).get("teams") or {}
@@ -75,7 +88,7 @@ class DirectoryClient:
             page = teams.get("pageInfo") or {}
             if not page.get("hasNextPage"):
                 break
-            cursor = page.get("endCursor")
-            if not cursor:
+            after = page.get("endCursor")
+            if not after:
                 break
         return out

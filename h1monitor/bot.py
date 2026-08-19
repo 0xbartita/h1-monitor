@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes,
 )
@@ -8,6 +8,17 @@ from telegram.ext import (
 from h1monitor.store import Store
 from h1monitor.config import Settings
 from h1monitor.models import Preferences, ChangeType
+
+# Registered with Telegram so typing "/" pops up an autocomplete menu.
+BOT_COMMANDS = [
+    BotCommand("start", "Show status and capture your chat"),
+    BotCommand("setup", "How to add your HackerOne API key"),
+    BotCommand("setapikey", "Set HackerOne API key (message auto-deleted)"),
+    BotCommand("config", "Choose which alerts you receive"),
+    BotCommand("programs", "How many programs are monitored"),
+    BotCommand("status", "Poll interval, credentials, settings"),
+    BotCommand("help", "List all commands"),
+]
 
 
 def is_owner(chat_id: int | None, store: Store, settings: Settings) -> bool:
@@ -55,8 +66,18 @@ def apply_toggle(store: Store, data: str) -> Preferences:
     return prefs
 
 
+async def _post_init(app: Application) -> None:
+    # Publish the command list so Telegram shows an autocomplete menu on "/".
+    await app.bot.set_my_commands(BOT_COMMANDS)
+
+
 def build_application(settings: Settings, store: Store) -> Application:
-    app = Application.builder().token(settings.telegram_bot_token).build()
+    app = (
+        Application.builder()
+        .token(settings.telegram_bot_token)
+        .post_init(_post_init)
+        .build()
+    )
 
     def guard(update: Update) -> bool:
         chat = update.effective_chat

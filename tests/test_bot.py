@@ -3,9 +3,15 @@ from cryptography.fernet import Fernet
 from h1monitor.store import Store
 from h1monitor.config import Settings
 from h1monitor.bot import (
-    is_owner, build_config_keyboard, apply_toggle, parse_setapikey_args,
+    is_owner, build_config_keyboard, apply_toggle, parse_setapikey_args, BOT_COMMANDS,
 )
 from h1monitor.models import Preferences, ChangeType
+
+
+def test_bot_commands_cover_all_handlers():
+    names = {c.command for c in BOT_COMMANDS}
+    assert names == {"start", "setup", "setapikey", "config", "programs", "status", "help"}
+    assert all(c.description for c in BOT_COMMANDS)  # every command has a description
 
 
 def _settings():
