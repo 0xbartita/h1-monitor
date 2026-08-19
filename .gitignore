@@ -1,0 +1,34 @@
+# Secrets & local state — NEVER commit these
+.env
+.env.*
+!.env.example
+*.key
+h1mon_secret.key
+h1monitor.db
+h1monitor.db-wal
+h1monitor.db-shm
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
