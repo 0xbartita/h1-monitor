@@ -1,14 +1,51 @@
 from __future__ import annotations
 
+import logging
 from html import escape
 
 from h1monitor.models import Change, ChangeType
 
-_MAX = 3800
+log = logging.getLogger("h1monitor")
+
+_MAX = 3800            # soft budget for packing several change lines per message
+_TG_LIMIT = 4096       # Telegram's hard per-message character limit
+_MAX_FIELD = 300       # cap a single old/new field value so one line can't blow up
 
 
 def escape_html(s: str) -> str:
     return escape(s or "")
+
+
+def _clip(s: str, n: int = _MAX_FIELD) -> str:
+    """Bound a raw field value so an alert line stays well under the TG limit."""
+    s = s or ""
+    return s if len(s) <= n else s[:n].rstrip() + "…"
+
+
+def split_for_telegram(text: str, limit: int = _TG_LIMIT) -> list[str]:
+    """Split a message into <=limit-char chunks on line boundaries (each of our
+    lines carries balanced HTML tags, so newline splits stay valid). A lone line
+    longer than the limit is hard-sliced as a last resort."""
+    if len(text) <= limit:
+        return [text]
+    out: list[str] = []
+    cur = ""
+    for line in text.split("\n"):
+        while len(line) > limit:
+            if cur:
+                out.append(cur)
+                cur = ""
+            out.append(line[:limit])
+            line = line[limit:]
+        piece = line if not cur else cur + "\n" + line
+        if len(piece) > limit:
+            out.append(cur)
+            cur = line
+        else:
+            cur = piece
+    if cur:
+        out.append(cur)
+    return out
 
 
 def describe_error(e: BaseException) -> str:
@@ -74,7 +111,9 @@ def _change_line(c: Change) -> str:
             a, b = pair
             rows.append(
                 f"     {escape_html(field)}: "
-                + _TRANSITION.format(a=escape_html(str(a)), b=escape_html(str(b)))
+                + _TRANSITION.format(
+                    a=escape_html(_clip(str(a))), b=escape_html(_clip(str(b)))
+                )
             )
         return head + ("\n" + "\n".join(rows) if rows else "")
 
@@ -131,10 +170,19 @@ class Notifier:
         self._bot = bot
         self._chat_id = chat_id
 
-    async def send_text(self, text: str) -> None:
-        await self._bot.send_message(
-            self._chat_id, text, parse_mode="HTML", disable_web_page_preview=True
-        )
+    async def send_text(self, text: str) -> bool:
+        """Deliver a message (splitting if oversized). Never raises — returns
+        False if delivery failed so callers can react without crashing."""
+        try:
+            for chunk in split_for_telegram(text):
+                await self._bot.send_message(
+                    self._chat_id, chunk, parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            return True
+        except Exception:  # noqa: BLE001 — a send failure must not kill the caller
+            log.warning("Failed to send Telegram message", exc_info=True)
+            return False
 
     async def send_changes(self, changes: list[Change]) -> None:
         groups: dict[str, list[Change]] = {}
@@ -142,4 +190,4 @@ class Notifier:
             groups.setdefault(c.program_handle, []).append(c)
         for group in groups.values():
             for msg in format_group_messages(group):
-                await self.send_text(msg)
+                await self.send_text(msg)  # never raises; one bad msg won't abort

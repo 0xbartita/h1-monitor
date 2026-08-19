@@ -12,7 +12,7 @@ from h1monitor.config import (
 )
 from h1monitor.store import Store
 from h1monitor.bot import build_application, BOT_COMMANDS
-from h1monitor.notifier import Notifier
+from h1monitor.notifier import Notifier, split_for_telegram
 from h1monitor.h1_client import H1Client
 from h1monitor.directory_client import DirectoryClient
 from h1monitor.poller import private_poll_loop
@@ -63,14 +63,22 @@ class LazyNotifier(Notifier):
         self._bot = bot
         self._resolve = resolve_chat_id
 
-    async def send_text(self, text: str) -> None:
+    async def send_text(self, text: str) -> bool:
+        """Deliver to the owner chat, splitting oversized messages. Never raises:
+        a Telegram outage must not escape a poll loop and kill the daemon."""
         chat = self._resolve()
         if chat is None:
             log.info("Suppressed alert (no owner chat yet): %s", text[:60])
-            return
-        await self._bot.send_message(
-            chat, text, parse_mode="HTML", disable_web_page_preview=True
-        )
+            return False
+        try:
+            for chunk in split_for_telegram(text):
+                await self._bot.send_message(
+                    chat, chunk, parse_mode="HTML", disable_web_page_preview=True
+                )
+            return True
+        except Exception:  # noqa: BLE001 — send failures are logged, never fatal
+            log.warning("Failed to deliver Telegram message", exc_info=True)
+            return False
 
 
 async def main_async(base_dir: str = ".") -> None:

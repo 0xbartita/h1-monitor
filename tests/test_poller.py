@@ -93,3 +93,72 @@ async def test_public_second_run_new_program(tmp_path):
     from h1monitor.models import ChangeType
     assert [c.program_handle for c in n.changes] == ["vercel"]
     assert all(ChangeType.NEW_PUBLIC_PROGRAM in c.types for c in n.changes)
+
+
+@pytest.mark.asyncio
+async def test_await_or_stop_cancels_in_flight_cycle_on_stop():
+    import asyncio
+    from h1monitor.poller import await_or_stop
+    stop = asyncio.Event()
+    stop.set()
+    cancelled = {"v": False}
+
+    async def slow():
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            cancelled["v"] = True
+            raise
+
+    completed = await await_or_stop(slow(), stop)
+    assert completed is False       # stop won; cycle abandoned
+    assert cancelled["v"] is True   # the sweep was actually cancelled
+
+
+@pytest.mark.asyncio
+async def test_await_or_stop_completes_and_surfaces_exception():
+    import asyncio
+    from h1monitor.poller import await_or_stop
+    stop = asyncio.Event()  # never set
+
+    async def ok():
+        return None
+
+    assert await await_or_stop(ok(), stop) is True
+
+    async def boom():
+        raise ValueError("cycle failed")
+
+    with pytest.raises(ValueError):
+        await await_or_stop(boom(), stop)
+
+
+@pytest.mark.asyncio
+async def test_private_loop_survives_fetch_and_alert_send_crashes(tmp_path):
+    import asyncio
+    from h1monitor.models import Snapshot
+    from h1monitor.poller import private_poll_loop
+    st = _store(tmp_path)
+    st.set_h1_credentials("u", "t")
+    st.save_snapshot("private", Snapshot({}))
+
+    class BoomClient:
+        async def fetch_private_snapshot(self, previous=None):
+            raise RuntimeError("h1 500")
+        async def aclose(self):
+            pass
+
+    class BoomNotifier:               # even the failure-alert send explodes
+        async def send_text(self, text):
+            raise RuntimeError("telegram down")
+        async def send_changes(self, changes):
+            pass
+
+    stop = asyncio.Event()
+    task = asyncio.ensure_future(
+        private_poll_loop(st, lambda u, t: BoomClient(), BoomNotifier(), stop)
+    )
+    await asyncio.sleep(0.2)
+    stop.set()
+    # If either crash escaped the loop, wait_for would re-raise instead of returning.
+    await asyncio.wait_for(task, timeout=3)

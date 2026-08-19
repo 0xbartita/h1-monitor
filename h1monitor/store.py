@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import threading
 
 from h1monitor.models import Snapshot, Program, Scope, Preferences
 from h1monitor.config import encrypt, decrypt
+
+_log = logging.getLogger("h1monitor")
 
 
 def _scope_to_dict(s: Scope) -> dict:
@@ -116,12 +119,19 @@ class Store:
 
     def get_h1_credentials(self) -> tuple[str, str] | None:
         rows = dict(self._db.execute("SELECT name,value FROM credentials").fetchall())
-        if "h1_username" in rows and "h1_token" in rows:
+        if "h1_username" not in rows or "h1_token" not in rows:
+            return None
+        try:
             return (
                 decrypt(self._key, rows["h1_username"]),
                 decrypt(self._key, rows["h1_token"]),
             )
-        return None
+        except Exception:  # noqa: BLE001 — key/ciphertext mismatch must not crash
+            _log.warning(
+                "Stored HackerOne credentials can't be decrypted with the current "
+                "secret key — treating as unset. Re-run setup to re-enter them."
+            )
+            return None
 
     # --- owner ---
     def get_owner_chat_id(self) -> int | None:

@@ -103,3 +103,47 @@ def test_describe_error_falls_back_to_type_name_when_empty():
     # httpx transport errors stringify to "" — must not yield an empty alert
     assert describe_error(httpx.ReadError("")) == "ReadError"
     assert describe_error(RuntimeError("boom")) == "boom"
+
+
+def test_split_for_telegram_bounds_every_chunk():
+    from h1monitor.notifier import split_for_telegram
+    text = "\n".join(f"line {i}" for i in range(2000))
+    chunks = split_for_telegram(text, limit=500)
+    assert all(len(c) <= 500 for c in chunks)
+    assert sum(c.count("line ") for c in chunks) == 2000  # no lines lost
+
+
+def test_oversized_scope_change_stays_under_telegram_limit():
+    from h1monitor.notifier import format_group_messages, split_for_telegram
+    huge = "x" * 20000  # a multi-KB instruction value
+    c = Change(
+        frozenset({ChangeType.SCOPE_MODIFIED}), "acme", "Acme", "open",
+        "Scope changed",
+        {"scope_key": "URL:acme.com", "fields": {"instruction": (huge, huge)}},
+    )
+    msgs = []
+    for m in format_group_messages([c]):
+        msgs.extend(split_for_telegram(m))
+    assert msgs and all(len(m) <= 4096 for m in msgs)  # never exceeds hard limit
+    assert any("…" in m for m in msgs)                  # value was clipped
+    assert all(huge not in m for m in msgs)             # raw giant value not emitted
+
+
+@pytest.mark.asyncio
+async def test_send_changes_survives_a_failing_message():
+    from h1monitor.notifier import Notifier
+    calls = {"n": 0}
+
+    class FlakyBot:
+        async def send_message(self, chat, text, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("telegram 500")
+
+    n = Notifier(FlakyBot(), 42)
+    changes = [
+        Change(frozenset({ChangeType.PROGRAM_ADDED}), "a", "A", "open", "s", {}),
+        Change(frozenset({ChangeType.PROGRAM_ADDED}), "b", "B", "open", "s", {}),
+    ]
+    await n.send_changes(changes)   # must not raise despite the first send failing
+    assert calls["n"] == 2          # continued to the second program

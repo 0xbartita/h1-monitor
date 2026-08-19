@@ -5,6 +5,7 @@ import time
 
 from h1monitor.store import Store
 from h1monitor.notifier import Notifier, escape_html, describe_error
+from h1monitor.poller import await_or_stop, send_deduped_alert
 from h1monitor.differ import diff_snapshot
 from h1monitor.filters import filter_changes
 from h1monitor.models import ChangeType
@@ -37,15 +38,17 @@ async def public_poll_loop(
     while not stop.is_set():
         client = client_provider()
         try:
-            await run_public_cycle(store, client, notifier)
-            store.clear_alert("public-fetch-failed")
+            if await await_or_stop(run_public_cycle(store, client, notifier), stop):
+                store.clear_alert("public-fetch-failed")
         except Exception as e:  # noqa: BLE001
-            if store.mark_alert_sent("public-fetch-failed"):
-                await notifier.send_text(
-                    f"⚠️ <b>Public sync failed:</b> {escape_html(describe_error(e))}"
-                )
+            await send_deduped_alert(
+                store, notifier, "public-fetch-failed",
+                f"⚠️ <b>Public sync failed:</b> {escape_html(describe_error(e))}",
+            )
         finally:
             await client.aclose()
+        if stop.is_set():
+            break
         interval = store.get_preferences().poll_interval_minutes * 60
         try:
             await asyncio.wait_for(stop.wait(), timeout=interval)

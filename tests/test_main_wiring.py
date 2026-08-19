@@ -47,3 +47,42 @@ def test_ensure_bot_token_noninteractive_no_write(tmp_path, monkeypatch):
         str(tmp_path), input_fn=lambda _: "x", isatty=False, out=lambda *a: None
     )
     assert not (tmp_path / ".env").exists()
+
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_lazynotifier_swallows_send_errors():
+    from h1monitor.main import LazyNotifier
+
+    class BoomBot:
+        async def send_message(self, *a, **k):
+            raise RuntimeError("telegram unreachable")
+
+    n = LazyNotifier(BoomBot(), lambda: 123)
+    assert await n.send_text("hi") is False   # swallowed, never raised
+
+
+@pytest.mark.asyncio
+async def test_lazynotifier_returns_false_without_owner():
+    from h1monitor.main import LazyNotifier
+
+    class Bot:
+        async def send_message(self, *a, **k):
+            return None
+
+    assert await LazyNotifier(Bot(), lambda: None).send_text("hi") is False
+
+
+@pytest.mark.asyncio
+async def test_lazynotifier_delivers_returns_true():
+    from h1monitor.main import LazyNotifier
+    sent = []
+
+    class Bot:
+        async def send_message(self, chat, text, **k):
+            sent.append((chat, text))
+
+    assert await LazyNotifier(Bot(), lambda: 7).send_text("hi") is True
+    assert sent == [(7, "hi")]

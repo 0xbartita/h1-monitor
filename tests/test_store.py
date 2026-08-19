@@ -82,3 +82,14 @@ def test_alert_once(store):
     assert store.mark_alert_sent("h1-down") is False
     store.clear_alert("h1-down")
     assert store.mark_alert_sent("h1-down") is True
+
+
+def test_get_h1_credentials_returns_none_on_key_mismatch(tmp_path):
+    db = str(tmp_path / "creds.db")
+    a = Store(db, Fernet.generate_key())
+    a.set_h1_credentials("user", "tok")
+    a.close()
+    # A different secret key against the same DB must not crash the daemon.
+    b = Store(db, Fernet.generate_key())
+    assert b.get_h1_credentials() is None
+    b.close()
