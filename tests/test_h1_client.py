@@ -35,7 +35,7 @@ def test_parse_scope_item():
 async def test_fetch_private_snapshot_includes_private_with_scopes():
     def handler(request):
         url = str(request.url)
-        if url.endswith("/hackers/programs"):
+        if request.url.path.endswith("/hackers/programs"):
             return httpx.Response(200, json={"data": [_prog_item("acme")], "links": {}})
         if "structured_scopes" in url:
             return httpx.Response(200, json=_scopes_body())
@@ -52,7 +52,7 @@ async def test_fetch_private_snapshot_includes_private_with_scopes():
 async def test_public_mode_programs_are_excluded():
     def handler(request):
         url = str(request.url)
-        if url.endswith("/hackers/programs"):
+        if request.url.path.endswith("/hackers/programs"):
             return httpx.Response(200, json={"data": [
                 _prog_item("pub", state="public_mode"),
                 _prog_item("priv", state="private_mode"),
@@ -77,7 +77,7 @@ async def test_per_program_error_reuses_previous():
 
     def handler(request):
         url = str(request.url)
-        if url.endswith("/hackers/programs"):
+        if request.url.path.endswith("/hackers/programs"):
             return httpx.Response(200, json={"data": [_prog_item("priv")], "links": {}})
         return httpx.Response(500)  # scopes fail
 

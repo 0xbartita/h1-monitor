@@ -77,7 +77,7 @@ class H1Client:
         a per-program failure reuses the previous scopes instead of failing the
         whole cycle."""
         progs: list[Program] = []
-        for item in await self._paginate("/hackers/programs"):
+        for item in await self._paginate("/hackers/programs?page[size]=100"):
             attrs = item.get("attributes", {})
             if attrs.get("state") == "public_mode":
                 continue
@@ -93,7 +93,7 @@ class H1Client:
             async with sem:
                 try:
                     items = await self._paginate(
-                        f"/hackers/programs/{prog.handle}/structured_scopes"
+                        f"/hackers/programs/{prog.handle}/structured_scopes?page[size]=100"
                     )
                     prog.scopes = {s.key: s for s in map(_parse_scope_item, items)}
                 except Exception:  # noqa: BLE001 — one program must not fail the cycle
