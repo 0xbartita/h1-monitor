@@ -40,16 +40,111 @@ def parse_setapikey_args(text: str) -> tuple[str, str] | None:
     return None
 
 
+# Human-friendly labels for each alert type (used in /config buttons).
+CHANGE_LABELS: dict[ChangeType, str] = {
+    ChangeType.NEW_PUBLIC_PROGRAM: "🆕 New program launched",
+    ChangeType.SCOPE_ADDED: "➕ Scope added",
+    ChangeType.SCOPE_REMOVED: "➖ Scope removed",
+    ChangeType.SCOPE_MODIFIED: "✏️ Scope changed",
+    ChangeType.BOUNTY_CHANGED: "💰 Bounty changed",
+    ChangeType.PROGRAM_ADDED: "🔓 New access granted",
+    ChangeType.PROGRAM_REMOVED: "🚫 Access removed",
+    ChangeType.PROGRAM_STATE: "⏸ Program status",
+}
+
+
+def change_type_label(t: ChangeType) -> str:
+    return CHANGE_LABELS.get(t, t.value)
+
+
+# --- message text (HTML, pure functions so they're testable) ---
+
+def start_text(has_creds: bool) -> str:
+    api = "✅ connected" if has_creds else "❌ not set — send /setup"
+    return (
+        "👋 <b>h1monitor is running</b>\n\n"
+        f"🔑 HackerOne API: {api}\n"
+        "🔔 Alerts: <b>on</b> — fine-tune them with /config\n\n"
+        "Tap the menu (<code>/</code>) to see everything I can do."
+    )
+
+
+def setup_text() -> str:
+    return (
+        "🔑 <b>Connect your HackerOne API key</b>\n\n"
+        "Send this — both values are on your HackerOne <i>API Token</i> settings page:\n"
+        "<code>/setapikey &lt;identifier&gt; &lt;token&gt;</code>\n\n"
+        "🔒 Your message is <b>deleted the instant</b> I read it, and the key is stored encrypted."
+    )
+
+
+def setapikey_usage() -> str:
+    return "⚠️ <b>Usage:</b> <code>/setapikey &lt;identifier&gt; &lt;token&gt;</code>"
+
+
+def setapikey_saved() -> str:
+    return (
+        "🔐 <b>API key saved</b> — and your message was deleted.\n"
+        "Your private programs start syncing on the next check."
+    )
+
+
+def config_prompt() -> str:
+    return (
+        "⚙️ <b>Choose what you get alerted about</b>\n"
+        "Tap any item to switch it on or off:"
+    )
+
+
+def programs_text(npub: int, npriv: int, pub_sc: int, priv_sc: int) -> str:
+    return (
+        "📡 <b>Under watch</b>\n\n"
+        f"🌐 Public — <b>{npub:,}</b> programs · <b>{pub_sc:,}</b> scopes\n"
+        f"🔒 Private — <b>{npriv:,}</b> programs · <b>{priv_sc:,}</b> scopes\n\n"
+        "Every scope, public and private, is tracked automatically."
+    )
+
+
+def status_text(prefs: Preferences, has_creds: bool) -> str:
+    api = "✅ connected" if has_creds else "❌ not set"
+    paused = "on" if prefs.exclude_paused else "off"
+    return (
+        "📊 <b>Status</b>\n\n"
+        f"🌐 Public check — every <b>{prefs.poll_interval_minutes} min</b>\n"
+        f"🔒 Private check — every <b>{prefs.private_interval_minutes} min</b>\n"
+        f"🔑 HackerOne API — {api}\n"
+        f"⏸ Skip paused programs — <b>{paused}</b>"
+    )
+
+
+def help_text() -> str:
+    return (
+        "🛠 <b>h1monitor commands</b>\n\n"
+        "/start — status &amp; setup\n"
+        "/setapikey — connect your API key (auto-deleted)\n"
+        "/config — choose which alerts you receive\n"
+        "/programs — how many programs &amp; scopes are watched\n"
+        "/status — check intervals &amp; settings\n"
+        "/help — show this list\n\n"
+        "Everything — public <i>and</i> private, programs <i>and</i> scopes — "
+        "is monitored automatically."
+    )
+
+
 def build_config_keyboard(prefs: Preferences) -> InlineKeyboardMarkup:
     rows = []
     for t in ChangeType:
         mark = "✅" if prefs.is_type_enabled(t) else "❌"
         rows.append(
-            [InlineKeyboardButton(f"{mark} {t.value}", callback_data=f"toggle:{t.value}")]
+            [InlineKeyboardButton(
+                f"{mark} {change_type_label(t)}", callback_data=f"toggle:{t.value}"
+            )]
         )
     mark = "✅" if prefs.exclude_paused else "❌"
     rows.append(
-        [InlineKeyboardButton(f"{mark} exclude_paused", callback_data="toggle:exclude_paused")]
+        [InlineKeyboardButton(
+            f"{mark} ⏸ Ignore paused programs", callback_data="toggle:exclude_paused"
+        )]
     )
     return InlineKeyboardMarkup(rows)
 
@@ -87,12 +182,7 @@ def build_application(settings: Settings, store: Store) -> Application:
         if not guard(update):
             return
         has = store.get_h1_credentials() is not None
-        msg = (
-            "👋 h1monitor ready.\n"
-            f"H1 credentials: {'set ✅' if has else 'not set ❌ — run /setup'}\n"
-            "Use /config to choose what you receive."
-        )
-        await update.message.reply_text(msg)
+        await update.message.reply_text(start_text(has), parse_mode="HTML")
 
     async def setapikey(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
@@ -104,27 +194,23 @@ def build_application(settings: Settings, store: Store) -> Application:
             pass
         if not parsed:
             await update.effective_chat.send_message(
-                "Usage: /setapikey <identifier> <token>"
+                setapikey_usage(), parse_mode="HTML"
             )
             return
         store.set_h1_credentials(*parsed)
-        await update.effective_chat.send_message(
-            "🔐 H1 credentials saved (your message was deleted)."
-        )
+        await update.effective_chat.send_message(setapikey_saved(), parse_mode="HTML")
 
     async def setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
-        await update.message.reply_text(
-            "Send: /setapikey <identifier> <token>\n"
-            "Your message is deleted immediately after capture."
-        )
+        await update.message.reply_text(setup_text(), parse_mode="HTML")
 
     async def config(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
         await update.message.reply_text(
-            "Toggle what you receive:",
+            config_prompt(),
+            parse_mode="HTML",
             reply_markup=build_config_keyboard(store.get_preferences()),
         )
 
@@ -146,9 +232,7 @@ def build_application(settings: Settings, store: Store) -> Application:
         pub_sc = sum(len(p.scopes) for p in pub.programs.values()) if pub else 0
         priv_sc = sum(len(p.scopes) for p in priv.programs.values()) if priv else 0
         await update.message.reply_text(
-            f"Monitoring {npub} public + {npriv} private program(s).\n"
-            f"Scopes watched: {pub_sc} public + {priv_sc} private.\n"
-            "All scopes — public and private — are tracked automatically."
+            programs_text(npub, npriv, pub_sc, priv_sc), parse_mode="HTML"
         )
 
     async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -156,24 +240,12 @@ def build_application(settings: Settings, store: Store) -> Application:
             return
         prefs = store.get_preferences()
         has = store.get_h1_credentials() is not None
-        await update.message.reply_text(
-            f"Interval: {prefs.poll_interval_minutes}m | "
-            f"H1 creds: {'yes' if has else 'no'} | "
-            f"exclude_paused: {prefs.exclude_paused}"
-        )
+        await update.message.reply_text(status_text(prefs, has), parse_mode="HTML")
 
     async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
-        await update.message.reply_text(
-            "/start — status & setup\n"
-            "/setapikey <id> <token> — set API key (auto-deleted)\n"
-            "/config — toggle which alerts you get\n"
-            "/programs — how many programs & scopes are monitored\n"
-            "/status — settings\n"
-            "/help — this list\n\n"
-            "All programs and scopes — public and private — are monitored automatically."
-        )
+        await update.message.reply_text(help_text(), parse_mode="HTML")
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setup", setup))

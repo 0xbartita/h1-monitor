@@ -4,7 +4,7 @@ import asyncio
 import time
 
 from h1monitor.store import Store
-from h1monitor.notifier import Notifier
+from h1monitor.notifier import Notifier, escape_html
 from h1monitor.differ import diff_snapshot
 from h1monitor.filters import filter_changes
 from h1monitor.models import ChangeType
@@ -18,7 +18,8 @@ async def run_private_cycle(store: Store, client, notifier: Notifier) -> None:
     if previous is None:
         store.save_snapshot("private", snap)
         await notifier.send_text(
-            f"✅ Baseline established — watching {len(snap.programs)} private program(s)."
+            f"✅ <b>Baseline ready</b> — now watching <b>{len(snap.programs):,}</b> "
+            "private program(s). Change alerts start from the next check."
         )
         store.record_poll("private", time.time())
         return
@@ -38,7 +39,8 @@ async def private_poll_loop(
         if creds is None:
             if store.mark_alert_sent("private-no-creds"):
                 await notifier.send_text(
-                    "ℹ️ No H1 credentials yet — run /setup to monitor your private programs."
+                    "ℹ️ <b>No HackerOne key yet</b> — send /setup to start watching "
+                    "your private programs."
                 )
         else:
             store.clear_alert("private-no-creds")
@@ -48,7 +50,9 @@ async def private_poll_loop(
                 store.clear_alert("private-fetch-failed")
             except Exception as e:  # noqa: BLE001
                 if store.mark_alert_sent("private-fetch-failed"):
-                    await notifier.send_text(f"⚠️ Private (API) poll failed: {e}")
+                    await notifier.send_text(
+                        f"⚠️ <b>Private sync failed:</b> {escape_html(str(e))}"
+                    )
             finally:
                 await client.aclose()
         interval = store.get_preferences().private_interval_minutes * 60

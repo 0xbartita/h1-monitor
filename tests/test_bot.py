@@ -4,9 +4,35 @@ from h1monitor.store import Store
 from h1monitor.config import Settings
 from h1monitor.bot import (
     is_owner, build_config_keyboard, apply_toggle, parse_setapikey_args,
-    BOT_COMMANDS,
+    change_type_label, programs_text, status_text, help_text, setup_text,
+    start_text, BOT_COMMANDS,
 )
 from h1monitor.models import Preferences, ChangeType
+
+
+def test_change_type_label_covers_every_type():
+    for t in ChangeType:
+        label = change_type_label(t)
+        assert label and label != t.value  # human phrase, not the raw enum value
+
+
+def test_programs_text_formats_counts_with_separators():
+    txt = programs_text(449, 458, 11296, 14950)
+    assert "449" in txt and "458" in txt
+    assert "11,296" in txt and "14,950" in txt  # thousands separators
+    assert "Public" in txt and "Private" in txt
+
+
+def test_status_text_shows_both_intervals_and_creds():
+    txt = status_text(Preferences.defaults(), True)
+    assert "30 min" in txt and "120 min" in txt and "connected" in txt
+
+
+def test_message_text_is_html_safe():
+    # literal angle brackets must be escaped so Telegram HTML parsing succeeds
+    assert "&lt;identifier&gt;" in setup_text() and "<identifier>" not in setup_text()
+    assert "&amp;" in help_text()
+    assert "<b>" in start_text(False)  # actually styled
 
 
 def test_bot_commands_cover_all_handlers():

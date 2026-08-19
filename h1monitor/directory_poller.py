@@ -4,7 +4,7 @@ import asyncio
 import time
 
 from h1monitor.store import Store
-from h1monitor.notifier import Notifier
+from h1monitor.notifier import Notifier, escape_html
 from h1monitor.differ import diff_snapshot
 from h1monitor.filters import filter_changes
 from h1monitor.models import ChangeType
@@ -17,7 +17,10 @@ async def run_public_cycle(store: Store, client, notifier: Notifier) -> None:
     snap = await client.fetch_public_snapshot()
     if previous is None:
         store.save_snapshot("public", snap)
-        await notifier.send_text(f"✅ Tracking {len(snap.programs)} public programs.")
+        await notifier.send_text(
+            f"✅ <b>Now tracking {len(snap.programs):,} public programs</b> — "
+            "you'll hear about new launches and scope changes."
+        )
         store.record_poll("public", time.time())
         return
     changes = filter_changes(
@@ -38,7 +41,9 @@ async def public_poll_loop(
             store.clear_alert("public-fetch-failed")
         except Exception as e:  # noqa: BLE001
             if store.mark_alert_sent("public-fetch-failed"):
-                await notifier.send_text(f"⚠️ Public (directory) poll failed: {e}")
+                await notifier.send_text(
+                    f"⚠️ <b>Public sync failed:</b> {escape_html(str(e))}"
+                )
         finally:
             await client.aclose()
         interval = store.get_preferences().poll_interval_minutes * 60
