@@ -10,8 +10,12 @@ from h1monitor.filters import filter_changes
 
 
 async def run_api_cycle(store: Store, client, notifier: Notifier) -> None:
+    prefs = store.get_preferences()
+    # If an allowlist is set, only deep-scan those programs' scopes (keeps the
+    # cycle fast when the key can see thousands of programs).
+    scope_handles = set(prefs.allowlist) if prefs.allowlist else None
     previous = store.load_api_snapshot()
-    snap = await client.fetch_snapshot(previous)
+    snap = await client.fetch_snapshot(previous, scope_handles=scope_handles)
     if previous is None:
         store.save_api_snapshot(snap)
         await notifier.send_text(
@@ -19,7 +23,7 @@ async def run_api_cycle(store: Store, client, notifier: Notifier) -> None:
         )
         store.record_poll("api", time.time())
         return
-    changes = filter_changes(diff_api(previous, snap), store.get_preferences())
+    changes = filter_changes(diff_api(previous, snap), prefs)
     await notifier.send_changes(changes)
     store.save_api_snapshot(snap)
     store.record_poll("api", time.time())

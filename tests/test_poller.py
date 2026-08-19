@@ -22,8 +22,10 @@ class FakeNotifier:
 class FakeH1:
     def __init__(self, snap):
         self._snap = snap
+        self.scope_handles = "unset"
 
-    async def fetch_snapshot(self, previous=None):
+    async def fetch_snapshot(self, previous=None, scope_handles=None):
+        self.scope_handles = scope_handles
         return self._snap
 
 
@@ -60,6 +62,19 @@ async def test_api_second_run_emits_changes(tmp_path):
     snap = Snapshot({"acme": Program("acme", "Acme", "paused", True, "USD", "p", {})})
     await run_api_cycle(st, FakeH1(snap), n)
     assert any("state" in c.summary for c in n.changes)
+
+
+@pytest.mark.asyncio
+async def test_api_cycle_passes_allowlist_as_scope_handles(tmp_path):
+    from h1monitor.models import Preferences
+    st = _store(tmp_path)
+    prefs = Preferences.defaults()
+    prefs.allowlist = frozenset({"acme", "beta"})
+    st.save_preferences(prefs)
+    st.save_api_snapshot(Snapshot({"acme": Program("acme", "Acme", "open", True, "USD", "p", {})}))
+    fake = FakeH1(Snapshot({"acme": Program("acme", "Acme", "open", True, "USD", "p", {})}))
+    await run_api_cycle(st, fake, FakeNotifier())
+    assert fake.scope_handles == {"acme", "beta"}
 
 
 @pytest.mark.asyncio

@@ -78,6 +78,55 @@ async def test_fetch_snapshot_paginates_programs_and_scopes():
 
 
 @pytest.mark.asyncio
+async def test_scope_handles_limits_which_programs_are_scanned():
+    from h1monitor.models import Snapshot, Program, Scope
+
+    prev = Snapshot(
+        {
+            "beta": Program(
+                "beta", "Beta", "open", True, "USD", "p",
+                {"URL:b.com": Scope("URL", "b.com", True, True, "medium",
+                                    None, None, None, None, "t")},
+            )
+        }
+    )
+    scanned = []
+
+    def handler(request):
+        url = str(request.url)
+        if url.endswith("/hackers/programs"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "1", "attributes": {"handle": "acme", "name": "Acme",
+                         "submission_state": "open", "offers_bounties": True,
+                         "currency": "USD", "policy": "p"}},
+                        {"id": "2", "attributes": {"handle": "beta", "name": "Beta",
+                         "submission_state": "open", "offers_bounties": True,
+                         "currency": "USD", "policy": "p"}},
+                    ],
+                    "links": {},
+                },
+            )
+        if "structured_scopes" in url:
+            scanned.append(url.split("/programs/")[1].split("/")[0])
+            return httpx.Response(200, json={"data": [
+                {"id": "9", "attributes": {"asset_type": "URL", "asset_identifier": "a.com",
+                 "eligible_for_bounty": True, "eligible_for_submission": True,
+                 "max_severity": "high", "updated_at": "t"}}], "links": {}})
+        return httpx.Response(404)
+
+    client = H1Client("id", "tok", transport=httpx.MockTransport(handler))
+    snap = await client.fetch_snapshot(previous=prev, scope_handles={"acme"})
+    await client.aclose()
+    assert scanned == ["acme"]  # beta was NOT deep-scanned
+    assert snap.programs["acme"].scopes["URL:a.com"].max_severity == "high"
+    # beta kept its previous scopes
+    assert snap.programs["beta"].scopes["URL:b.com"].max_severity == "medium"
+
+
+@pytest.mark.asyncio
 async def test_per_program_error_reuses_previous():
     from h1monitor.models import Snapshot, Program, Scope
 
