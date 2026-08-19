@@ -109,6 +109,7 @@ class Preferences:
     enabled: dict[ChangeType, bool]
     exclude_paused: bool = True
     poll_interval_minutes: int = 30
+    private_interval_minutes: int = 120
     allowlist: frozenset[str] = frozenset()
     denylist: frozenset[str] = frozenset()
 
@@ -125,6 +126,7 @@ class Preferences:
                 "enabled": {t.value: v for t, v in self.enabled.items()},
                 "exclude_paused": self.exclude_paused,
                 "poll_interval_minutes": self.poll_interval_minutes,
+                "private_interval_minutes": self.private_interval_minutes,
                 "allowlist": sorted(self.allowlist),
                 "denylist": sorted(self.denylist),
             }
@@ -143,6 +145,7 @@ class Preferences:
             enabled=enabled,
             exclude_paused=bool(d.get("exclude_paused", True)),
             poll_interval_minutes=int(d.get("poll_interval_minutes", 30)),
+            private_interval_minutes=int(d.get("private_interval_minutes", 120)),
             allowlist=frozenset(d.get("allowlist", [])),
             denylist=frozenset(d.get("denylist", [])),
         )

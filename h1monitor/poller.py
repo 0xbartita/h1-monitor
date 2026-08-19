@@ -51,7 +51,7 @@ async def private_poll_loop(
                     await notifier.send_text(f"⚠️ Private (API) poll failed: {e}")
             finally:
                 await client.aclose()
-        interval = store.get_preferences().poll_interval_minutes * 60
+        interval = store.get_preferences().private_interval_minutes * 60
         try:
             await asyncio.wait_for(stop.wait(), timeout=interval)
         except asyncio.TimeoutError:
