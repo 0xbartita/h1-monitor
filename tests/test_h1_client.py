@@ -129,3 +129,65 @@ async def test_null_data_field_does_not_crash_private_fetch():
     snap = await client.fetch_private_snapshot()
     await client.aclose()
     assert snap.programs == {}   # was: TypeError from extend(None)
+
+
+@pytest.mark.asyncio
+async def test_program_list_survives_a_transient_timeout():
+    """A single ReadTimeout on the program-list request must NOT abort the whole
+    private sweep — the reported '⚠️ Private sync failed: ReadTimeout'. The list
+    path must retry transient blips like the scope path already does."""
+    calls = {"n": 0}
+
+    def handler(request):
+        if request.url.path.endswith("/hackers/programs"):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise httpx.ReadTimeout("timed out", request=request)
+            return httpx.Response(200, json={"data": [_prog_item("acme")], "links": {}})
+        if "structured_scopes" in str(request.url):
+            return httpx.Response(200, json=_scopes_body())
+        return httpx.Response(404)
+
+    client = H1Client("id", "tok", transport=httpx.MockTransport(handler),
+                      scope_delay=0, retry_delay=0)
+    snap = await client.fetch_private_snapshot()
+    await client.aclose()
+    assert "acme" in snap.programs   # sync completed despite the timeout
+    assert calls["n"] == 2           # it retried the list request
+
+
+@pytest.mark.asyncio
+async def test_program_list_gives_up_after_a_persistent_timeout():
+    """A sustained outage (not a blip) still surfaces the error so the operator
+    gets one alert — we retry, but we don't retry forever or hang."""
+    def handler(request):
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    client = H1Client("id", "tok", transport=httpx.MockTransport(handler),
+                      scope_delay=0, retry_delay=0)
+    with pytest.raises(httpx.TimeoutException):
+        await client.fetch_private_snapshot()
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_scope_fetch_retries_a_transient_network_error():
+    """A transient network blip (e.g. connection reset) on a scope fetch should
+    be retried, not silently cost that program its fresh scopes."""
+    calls = {"n": 0}
+
+    def handler(request):
+        if request.url.path.endswith("/hackers/programs"):
+            return httpx.Response(200, json={"data": [_prog_item("acme")], "links": {}})
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadError("connection reset", request=request)
+        return httpx.Response(200, json=_scopes_body())
+
+    client = H1Client("id", "tok", transport=httpx.MockTransport(handler),
+                      scope_delay=0, retry_delay=0)
+    snap = await client.fetch_private_snapshot()
+    await client.aclose()
+    # retried and got the real scopes (would be empty if the blip weren't retried)
+    assert snap.programs["acme"].scopes["URL:a.com"].max_severity == "high"
+    assert calls["n"] == 2

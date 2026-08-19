@@ -60,6 +60,7 @@ class H1Client:
         base_url: str = "https://api.hackerone.com/v1",
         transport=None,
         scope_delay: float = _SCOPE_BASE_GAP,
+        retry_delay: float = 0.5,
     ):
         self._client = httpx.AsyncClient(
             auth=(username, token), base_url=base_url, transport=transport,
@@ -67,6 +68,7 @@ class H1Client:
         )
         self._scope_gap = scope_delay   # floor / base pace between scope calls
         self._delay = scope_delay       # current (adaptive) pace
+        self._retry_delay = retry_delay  # backoff base for transient-error retries
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -74,13 +76,23 @@ class H1Client:
     async def _get(self, url: str) -> dict:
         resp = None
         for attempt in range(_MAX_TRIES):
-            resp = await self._client.get(url)
-            if resp.status_code == 429 and attempt < _MAX_TRIES - 1:
+            last = attempt == _MAX_TRIES - 1
+            try:
+                resp = await self._client.get(url)
+            except httpx.TransportError:
+                # Transient network blip (ReadTimeout, ConnectError, ReadError…).
+                # A single one must not abort a multi-minute sweep — retry with
+                # backoff, and only surface it if it persists across every try.
+                if last:
+                    raise
+                await asyncio.sleep(min(self._retry_delay * 2**attempt, _MAX_BACKOFF))
+                continue
+            if resp.status_code == 429 and not last:
                 # Rate limited — wait out HackerOne's Retry-After (floored so a
                 # hostile 0 can't hammer, capped so a huge one can't wedge).
                 await asyncio.sleep(_retry_after(resp.headers, default=2))
                 continue
-            if resp.status_code >= 500 and attempt < _MAX_TRIES - 1:
+            if resp.status_code >= 500 and not last:
                 await asyncio.sleep(min(2**attempt, _MAX_BACKOFF))
                 continue
             resp.raise_for_status()
@@ -99,15 +111,16 @@ class H1Client:
 
     async def _get_scope_page(self, url: str) -> dict:
         """One scope page, self-throttled. Sleeps the adaptive gap before each
-        request, backs off + slows down on 429, retries transient timeouts/5xx,
-        and eases the pace back toward the floor after a clean response."""
+        request, backs off + slows down on 429, retries transient network errors
+        (timeouts, resets, …) and 5xx, and eases the pace back toward the floor
+        after a clean response."""
         resp = None
         for attempt in range(_SCOPE_MAX_TRIES):
             if self._delay:
                 await asyncio.sleep(self._delay)
             try:
                 resp = await self._client.get(url)
-            except httpx.TimeoutException:
+            except httpx.TransportError:
                 if self._scope_gap:
                     await asyncio.sleep(min(2**attempt, _MAX_BACKOFF))
                 continue
