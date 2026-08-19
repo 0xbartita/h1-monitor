@@ -23,6 +23,51 @@ class Settings:
     directory_cookie: str | None
 
 
+def _env_path(base_dir: str) -> Path:
+    return Path(base_dir) / ".env"
+
+
+def _parse_env_text(text: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            out[key] = value
+    return out
+
+
+def load_dotenv(base_dir: str) -> dict[str, str]:
+    path = _env_path(base_dir)
+    if not path.exists():
+        return {}
+    return _parse_env_text(path.read_text())
+
+
+def upsert_env_var(base_dir: str, key: str, value: str) -> None:
+    """Set KEY=value in <base_dir>/.env, preserving other lines. Creates the
+    file with mode 0600 if it does not exist."""
+    path = _env_path(base_dir)
+    newfile = not path.exists()
+    lines = path.read_text().splitlines() if not newfile else []
+    replaced = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
+            lines[i] = f"{key}={value}"
+            replaced = True
+            break
+    if not replaced:
+        lines.append(f"{key}={value}")
+    path.write_text("\n".join(lines) + "\n")
+    if newfile:
+        os.chmod(path, 0o600)
+
+
 def _resolve_secret_key(env: Mapping[str, str], base_dir: str) -> bytes:
     raw = env.get("H1MON_SECRET_KEY")
     if raw:
@@ -37,7 +82,10 @@ def _resolve_secret_key(env: Mapping[str, str], base_dir: str) -> bytes:
 
 
 def load_settings(env: Mapping[str, str] | None = None, base_dir: str = ".") -> Settings:
-    env = os.environ if env is None else env
+    # When no explicit env is given, merge the .env file with the real
+    # environment (real environment variables win).
+    if env is None:
+        env = {**load_dotenv(base_dir), **os.environ}
     token = env.get("TELEGRAM_BOT_TOKEN")
     if not token:
         raise ConfigError("TELEGRAM_BOT_TOKEN is required")

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
-
 import sys
+from collections.abc import Callable
 
-from h1monitor.config import load_settings, Settings, ConfigError
+from h1monitor.config import (
+    load_settings, Settings, ConfigError, load_dotenv, upsert_env_var,
+)
 from h1monitor.store import Store
 from h1monitor.bot import build_application
 from h1monitor.notifier import Notifier
@@ -16,6 +19,31 @@ from h1monitor.poller import api_poll_loop
 from h1monitor.directory_poller import directory_poll_loop
 
 log = logging.getLogger("h1monitor")
+
+
+def ensure_bot_token(
+    base_dir: str = ".",
+    *,
+    input_fn: Callable[[str], str] = input,
+    isatty: bool | None = None,
+    out: Callable[..., None] = print,
+) -> None:
+    """First-run helper: if no Telegram bot token is configured and we're on an
+    interactive terminal, prompt for it and save it to .env. Non-interactive
+    runs (systemd/Docker) fall through to a clean ConfigError in load_settings."""
+    merged = {**load_dotenv(base_dir), **os.environ}
+    if merged.get("TELEGRAM_BOT_TOKEN"):
+        return
+    tty = sys.stdin.isatty() if isatty is None else isatty
+    if not tty:
+        return
+    out("\nFirst-time setup — h1monitor needs your Telegram bot token.")
+    out("Create one by messaging @BotFather on Telegram (send /newbot), then paste it here.")
+    token = ""
+    while not token:
+        token = input_fn("Telegram bot token: ").strip()
+    upsert_env_var(base_dir, "TELEGRAM_BOT_TOKEN", token)
+    out("Saved to .env — starting now. You won't be asked again.\n")
 
 
 def seed_credentials_if_present(store: Store, settings: Settings) -> None:
@@ -47,6 +75,7 @@ class LazyNotifier(Notifier):
 
 async def main_async(base_dir: str = ".") -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    ensure_bot_token(base_dir)
     settings = load_settings(base_dir=base_dir)
     store = Store(settings.db_path, settings.secret_key)
     seed_credentials_if_present(store, settings)

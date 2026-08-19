@@ -20,20 +20,19 @@ HackerOne API key **through the bot**.
 
 ## Quickstart
 
-1. **Create a Telegram bot:** message [@BotFather](https://t.me/BotFather) → `/newbot` →
-   copy the bot token.
-2. **Configure:**
-   ```bash
-   cp .env.example .env
-   # edit .env and set TELEGRAM_BOT_TOKEN=...
-   ```
-3. **Install & run:**
+1. **Create a Telegram bot:** message [@BotFather](https://t.me/BotFather), send `/newbot`,
+   follow the prompts, and copy the bot token it gives you.
+2. **Install & run:**
    ```bash
    python -m venv .venv && . .venv/bin/activate
    pip install -e .
    python -m h1monitor
    ```
-4. **In Telegram**, DM your bot:
+   The **first time** it runs, it asks you to paste your bot token, saves it to a local
+   `.env` file for you, and starts. You're never asked again. (No files to copy or edit by
+   hand — though you *can* pre-set everything in `.env` if you prefer; see
+   [`.env.example`](.env.example) for the full list of options.)
+3. **In Telegram**, DM your bot:
    - `/start` — the bot captures your chat as the owner (only you can command it afterward).
    - `/setapikey <identifier> <token>` — set your HackerOne API credentials. **Your message
      is deleted immediately** after capture, and the credentials are stored encrypted.
@@ -42,6 +41,9 @@ HackerOne API key **through the bot**.
 
 The **directory feed needs no API key**, so new-public-program alerts start working even
 before you set credentials.
+
+> `.env.example` is just reference documentation of every available setting — handy when
+> this repo goes on GitHub. You don't need to touch it; the tool writes your `.env` for you.
 
 ### First run is quiet on purpose
 On the very first poll, h1monitor establishes a **silent baseline** (so you aren't spammed
