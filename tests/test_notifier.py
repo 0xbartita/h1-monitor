@@ -31,13 +31,14 @@ def test_vdp_wording():
     assert "vulnerability disclosure program" in format_change(_dir_change(bounties=False))
 
 
-def test_scope_change_format_has_name_handle_and_asset():
+def test_scope_change_format_has_name_and_asset():
     c = Change(
         frozenset({ChangeType.SCOPE_ADDED}), "acme", "Acme", "open",
         "scope added: URL:a.com", {"scope_key": "URL:a.com"},
     )
     text = format_change(c)
-    assert "Acme" in text and "(acme)" in text
+    assert "Acme" in text
+    assert "(acme)" not in text  # redundant handle-in-parens removed; URL carries it
     assert "Scope added" in text and "URL:a.com" in text
 
 

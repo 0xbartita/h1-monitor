@@ -136,7 +136,7 @@ def _change_line(c: Change) -> str:
 
 
 def _header(c: Change) -> str:
-    return f"🎯 <b>{escape_html(c.program_name)}</b> ({escape_html(c.program_handle)})\n{_link(_program_url(c))}"
+    return f"🎯 <b>{escape_html(c.program_name)}</b>\n{_link(_program_url(c))}"
 
 
 def format_group_messages(group: list[Change]) -> list[str]:
