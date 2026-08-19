@@ -149,6 +149,12 @@ def test_setup_text_uses_the_setup_command_not_setapikey():
     assert "/setup" in txt and "setapikey" not in txt
 
 
+def test_start_text_prompts_setup_in_both_states():
+    from h1monitor.bot import start_text
+    assert "/setup" in start_text(False)  # not connected -> connect call-to-action
+    assert "/setup" in start_text(True)   # connected -> still points at /setup
+
+
 def test_config_keyboard_has_button_per_type(tmp_path):
     kb = build_config_keyboard(Preferences.defaults())
     flat = [b.callback_data for row in kb.inline_keyboard for b in row]

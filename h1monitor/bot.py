@@ -138,10 +138,16 @@ def private_recommendation_line(nprograms: int, nscopes: int) -> str:
 # --- message text (HTML, pure functions so they're testable) ---
 
 def start_text(has_creds: bool) -> str:
-    api = "✅ connected" if has_creds else "❌ not set — send /setup"
+    if has_creds:
+        api = "✅ connected"
+        setup_line = "🔗 Use /setup anytime to update your HackerOne key."
+    else:
+        api = "❌ not connected"
+        setup_line = "👉 Tap /setup to connect your HackerOne account."
     return (
         "👋 <b>h1monitor is running</b>\n\n"
         f"🔑 HackerOne API: {api}\n"
+        f"{setup_line}\n"
         "🔔 Alerts: <b>on</b> — fine-tune them with /config\n\n"
         "Tap the menu (<code>/</code>) to see everything I can do."
     )
