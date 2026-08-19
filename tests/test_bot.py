@@ -6,6 +6,9 @@ from h1monitor.bot import (
     is_owner, build_config_keyboard, apply_toggle, parse_setapikey_args,
     change_type_label, programs_text, status_text, help_text, setup_text,
     start_text, BOT_COMMANDS,
+    format_interval, step_interval, apply_interval_step,
+    parse_setinterval_args, apply_setinterval, INTERVAL_BOUNDS,
+    PUBLIC_INTERVALS, PRIVATE_INTERVALS,
 )
 from h1monitor.models import Preferences, ChangeType
 
@@ -25,7 +28,74 @@ def test_programs_text_formats_counts_with_separators():
 
 def test_status_text_shows_both_intervals_and_creds():
     txt = status_text(Preferences.defaults(), True)
-    assert "30 min" in txt and "120 min" in txt and "connected" in txt
+    # defaults: public 30 -> "30 min", private 120 -> "2 h"
+    assert "30 min" in txt and "2 h" in txt and "connected" in txt
+
+
+def test_format_interval_renders_minutes_hours_days():
+    assert format_interval(15) == "15 min"
+    assert format_interval(30) == "30 min"
+    assert format_interval(60) == "1 h"
+    assert format_interval(120) == "2 h"
+    assert format_interval(90) == "1 h 30 min"
+    assert format_interval(1440) == "1 day"
+    assert format_interval(2880) == "2 days"
+
+
+def test_step_interval_moves_through_presets_and_clamps():
+    presets = [15, 30, 60, 120]
+    assert step_interval(30, presets, +1) == 60
+    assert step_interval(30, presets, -1) == 15
+    assert step_interval(120, presets, +1) == 120  # clamps at top
+    assert step_interval(15, presets, -1) == 15  # clamps at bottom
+    # off-preset value snaps to nearest preset in the step direction
+    assert step_interval(45, presets, +1) == 60
+    assert step_interval(45, presets, -1) == 30
+
+
+def test_config_keyboard_has_interval_steppers(tmp_path):
+    kb = build_config_keyboard(Preferences.defaults())
+    flat = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "intv:public:+" in flat and "intv:public:-" in flat
+    assert "intv:private:+" in flat and "intv:private:-" in flat
+
+
+def test_apply_interval_step_changes_and_persists(tmp_path):
+    st = _store(tmp_path)
+    st.save_preferences(Preferences.defaults())
+    p = apply_interval_step(st, "intv:public:+")  # 30 -> 60
+    assert p.poll_interval_minutes == 60
+    assert st.get_preferences().poll_interval_minutes == 60
+    p = apply_interval_step(st, "intv:private:-")  # 120 -> 60
+    assert p.private_interval_minutes == 60
+    assert st.get_preferences().private_interval_minutes == 60
+
+
+def test_parse_setinterval_args():
+    assert parse_setinterval_args("/setinterval public 45") == ("public", 45)
+    assert parse_setinterval_args("/setinterval PRIVATE 90") == ("private", 90)
+    assert parse_setinterval_args("/setinterval public") is None
+    assert parse_setinterval_args("/setinterval bogus 45") is None
+    assert parse_setinterval_args("/setinterval public abc") is None
+
+
+def test_apply_setinterval_sets_custom_value(tmp_path):
+    st = _store(tmp_path)
+    st.save_preferences(Preferences.defaults())
+    p = apply_setinterval(st, "private", 45)
+    assert p.private_interval_minutes == 45
+    assert st.get_preferences().private_interval_minutes == 45
+
+
+def test_interval_bounds_floor_private_above_sweep_time():
+    lo_pub, _ = INTERVAL_BOUNDS["public"]
+    lo_priv, _ = INTERVAL_BOUNDS["private"]
+    # private floor must exceed a single ~10-13 min sweep so scans never overlap
+    assert lo_priv >= 15
+    assert lo_pub >= 1
+    # presets must respect their own floors
+    assert min(PUBLIC_INTERVALS) >= lo_pub
+    assert min(PRIVATE_INTERVALS) >= lo_priv
 
 
 def test_message_text_is_html_safe():
@@ -38,7 +108,8 @@ def test_message_text_is_html_safe():
 def test_bot_commands_cover_all_handlers():
     names = {c.command for c in BOT_COMMANDS}
     assert names == {
-        "start", "setup", "setapikey", "config", "programs", "status", "help",
+        "start", "setup", "setapikey", "config", "programs", "status",
+        "setinterval", "help",
     }
     assert all(c.description for c in BOT_COMMANDS)  # every command has a description
 

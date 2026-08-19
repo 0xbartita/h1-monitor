@@ -15,6 +15,7 @@ BOT_COMMANDS = [
     BotCommand("setup", "How to add your HackerOne API key"),
     BotCommand("setapikey", "Set HackerOne API key (message auto-deleted)"),
     BotCommand("config", "Choose which alerts you receive"),
+    BotCommand("setinterval", "Set how often I check (public/private)"),
     BotCommand("programs", "How many programs are monitored"),
     BotCommand("status", "Poll interval, credentials, settings"),
     BotCommand("help", "List all commands"),
@@ -57,6 +58,106 @@ def change_type_label(t: ChangeType) -> str:
     return CHANGE_LABELS.get(t, t.value)
 
 
+# --- check-interval controls ---
+# Preset ladders the +/- steppers walk through (minutes).
+PUBLIC_INTERVALS = [15, 30, 60, 120, 240, 360, 720, 1440]
+# Private starts at 30 min: a full private sweep takes ~10-13 min, so we keep a
+# comfortable margin before the next scan begins.
+PRIVATE_INTERVALS = [30, 60, 120, 240, 360, 720, 1440]
+
+# (floor, ceiling) in minutes for custom /setinterval values.
+INTERVAL_BOUNDS: dict[str, tuple[int, int]] = {
+    "public": (5, 10080),    # 5 min .. 7 days
+    "private": (15, 10080),  # 15 min .. 7 days (floor > one sweep)
+}
+
+# Which Preferences field each side maps to.
+_INTERVAL_FIELD = {
+    "public": "poll_interval_minutes",
+    "private": "private_interval_minutes",
+}
+_INTERVAL_PRESETS = {"public": PUBLIC_INTERVALS, "private": PRIVATE_INTERVALS}
+
+
+def format_interval(mins: int) -> str:
+    """Render a minute count as a friendly duration: 30 min / 2 h / 1 day."""
+    if mins < 60:
+        return f"{mins} min"
+    if mins % 1440 == 0:
+        d = mins // 1440
+        return f"{d} day" + ("s" if d != 1 else "")
+    if mins % 60 == 0:
+        return f"{mins // 60} h"
+    h, m = divmod(mins, 60)
+    return f"{h} h {m} min"
+
+
+def step_interval(current: int, presets: list[int], direction: int) -> int:
+    """Next preset above/below `current`; clamps at the ends of the ladder."""
+    if direction > 0:
+        higher = [p for p in presets if p > current]
+        return min(higher) if higher else current
+    lower = [p for p in presets if p < current]
+    return max(lower) if lower else current
+
+
+def apply_interval_step(store: Store, data: str) -> Preferences:
+    """Handle an `intv:{public|private}:{+|-}` tap: step and persist."""
+    _, which, sign = data.split(":")
+    direction = 1 if sign == "+" else -1
+    prefs = store.get_preferences()
+    field = _INTERVAL_FIELD[which]
+    new = step_interval(getattr(prefs, field), _INTERVAL_PRESETS[which], direction)
+    setattr(prefs, field, new)
+    store.save_preferences(prefs)
+    return prefs
+
+
+def parse_setinterval_args(text: str) -> tuple[str, int] | None:
+    parts = (text or "").split()
+    if len(parts) != 3:
+        return None
+    which = parts[1].lower()
+    if which not in _INTERVAL_FIELD:
+        return None
+    try:
+        return which, int(parts[2])
+    except ValueError:
+        return None
+
+
+def apply_setinterval(store: Store, which: str, mins: int) -> Preferences:
+    """Set a custom interval (assumed already range-checked) and persist."""
+    prefs = store.get_preferences()
+    setattr(prefs, _INTERVAL_FIELD[which], mins)
+    store.save_preferences(prefs)
+    return prefs
+
+
+def setinterval_usage() -> str:
+    return (
+        "⚠️ <b>Usage:</b> <code>/setinterval &lt;public|private&gt; &lt;minutes&gt;</code>\n"
+        "Example: <code>/setinterval private 45</code>"
+    )
+
+
+def setinterval_out_of_range(which: str, lo: int, hi: int) -> str:
+    return (
+        f"⚠️ <b>{which.capitalize()} check</b> must be between "
+        f"<b>{format_interval(lo)}</b> and <b>{format_interval(hi)}</b>.\n"
+        + ("<i>The private floor keeps scans from overlapping a full sweep.</i>"
+           if which == "private" else "")
+    ).rstrip()
+
+
+def setinterval_saved(which: str, mins: int) -> str:
+    return (
+        f"⏱ <b>{which.capitalize()} check</b> set to "
+        f"<b>every {format_interval(mins)}</b>.\n"
+        "Takes effect on the next check."
+    )
+
+
 # --- message text (HTML, pure functions so they're testable) ---
 
 def start_text(has_creds: bool) -> str:
@@ -92,7 +193,9 @@ def setapikey_saved() -> str:
 def config_prompt() -> str:
     return (
         "⚙️ <b>Choose what you get alerted about</b>\n"
-        "Tap any item to switch it on or off:"
+        "Tap <b>➖ / ➕</b> to change how often I check, or tap any alert to "
+        "switch it on or off.\n"
+        "<i>Need an exact number? Send</i> <code>/setinterval private 45</code>."
     )
 
 
@@ -110,8 +213,8 @@ def status_text(prefs: Preferences, has_creds: bool) -> str:
     paused = "on" if prefs.exclude_paused else "off"
     return (
         "📊 <b>Status</b>\n\n"
-        f"🌐 Public check — every <b>{prefs.poll_interval_minutes} min</b>\n"
-        f"🔒 Private check — every <b>{prefs.private_interval_minutes} min</b>\n"
+        f"🌐 Public check — every <b>{format_interval(prefs.poll_interval_minutes)}</b>\n"
+        f"🔒 Private check — every <b>{format_interval(prefs.private_interval_minutes)}</b>\n"
         f"🔑 HackerOne API — {api}\n"
         f"⏸ Skip paused programs — <b>{paused}</b>"
     )
@@ -123,6 +226,7 @@ def help_text() -> str:
         "/start — status &amp; setup\n"
         "/setapikey — connect your API key (auto-deleted)\n"
         "/config — choose which alerts you receive\n"
+        "/setinterval — set how often I check (e.g. <code>private 45</code>)\n"
         "/programs — how many programs &amp; scopes are watched\n"
         "/status — check intervals &amp; settings\n"
         "/help — show this list\n\n"
@@ -131,8 +235,21 @@ def help_text() -> str:
     )
 
 
+def _interval_row(label: str, which: str, mins: int) -> list[InlineKeyboardButton]:
+    return [
+        InlineKeyboardButton("➖", callback_data=f"intv:{which}:-"),
+        InlineKeyboardButton(
+            f"{label} {format_interval(mins)}", callback_data="noop"
+        ),
+        InlineKeyboardButton("➕", callback_data=f"intv:{which}:+"),
+    ]
+
+
 def build_config_keyboard(prefs: Preferences) -> InlineKeyboardMarkup:
-    rows = []
+    rows = [
+        _interval_row("🌐 Public:", "public", prefs.poll_interval_minutes),
+        _interval_row("🔒 Private:", "private", prefs.private_interval_minutes),
+    ]
     for t in ChangeType:
         mark = "✅" if prefs.is_type_enabled(t) else "❌"
         rows.append(
@@ -222,6 +339,39 @@ def build_application(settings: Settings, store: Store) -> Application:
         await q.answer("Updated")
         await q.edit_message_reply_markup(build_config_keyboard(prefs))
 
+    async def on_interval(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not guard(update):
+            return
+        q = update.callback_query
+        prefs = apply_interval_step(store, q.data)
+        which = q.data.split(":")[1]
+        mins = getattr(prefs, _INTERVAL_FIELD[which])
+        await q.answer(f"Every {format_interval(mins)}")
+        await q.edit_message_reply_markup(build_config_keyboard(prefs))
+
+    async def on_noop(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        # The interval label button carries no action.
+        await update.callback_query.answer()
+
+    async def setinterval(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        if not guard(update):
+            return
+        parsed = parse_setinterval_args(update.message.text)
+        if not parsed:
+            await update.message.reply_text(setinterval_usage(), parse_mode="HTML")
+            return
+        which, mins = parsed
+        lo, hi = INTERVAL_BOUNDS[which]
+        if not (lo <= mins <= hi):
+            await update.message.reply_text(
+                setinterval_out_of_range(which, lo, hi), parse_mode="HTML"
+            )
+            return
+        apply_setinterval(store, which, mins)
+        await update.message.reply_text(
+            setinterval_saved(which, mins), parse_mode="HTML"
+        )
+
     async def programs(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
@@ -251,8 +401,11 @@ def build_application(settings: Settings, store: Store) -> Application:
     app.add_handler(CommandHandler("setup", setup))
     app.add_handler(CommandHandler("setapikey", setapikey))
     app.add_handler(CommandHandler("config", config))
+    app.add_handler(CommandHandler("setinterval", setinterval))
     app.add_handler(CommandHandler("programs", programs))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CallbackQueryHandler(on_toggle, pattern=r"^toggle:"))
+    app.add_handler(CallbackQueryHandler(on_interval, pattern=r"^intv:"))
+    app.add_handler(CallbackQueryHandler(on_noop, pattern=r"^noop$"))
     return app
