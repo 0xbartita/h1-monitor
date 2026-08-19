@@ -100,11 +100,23 @@ docker build -t h1monitor .
 docker run -d --env-file .env -v "$PWD/state:/app" --name h1monitor h1monitor
 ```
 
-**systemd:** copy the project to `/opt/h1monitor`, put your `.env` there, then:
+**systemd (system service):** copy the project to `/opt/h1monitor`, put your `.env` there, then:
 ```bash
 sudo cp systemd/h1monitor.service /etc/systemd/system/
 sudo systemctl enable --now h1monitor
 ```
+
+**systemd (user service — no sudo, recommended for a personal box):** runs 24/7,
+survives closing the terminal, logging out, and reboot, and auto-restarts on crash. Create
+`~/.config/systemd/user/h1monitor.service` with `WorkingDirectory` and `ExecStart` pointing
+at your checkout and its venv (see `systemd/h1monitor.service` for the fields), then:
+```bash
+loginctl enable-linger "$USER"   # keeps it running while you're logged out
+systemctl --user daemon-reload
+systemctl --user enable --now h1monitor
+```
+Control it: `systemctl --user {status,restart,stop} h1monitor`. Watch it:
+`tail -f h1monitor.log` (or `journalctl --user -u h1monitor -f`).
 
 ## Caveats
 

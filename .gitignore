@@ -10,6 +10,7 @@ h1monitor.db-shm
 *.db
 *.db-wal
 *.db-shm
+h1monitor.log
 
 # Python
 __pycache__/

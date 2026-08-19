@@ -75,6 +75,10 @@ class LazyNotifier(Notifier):
 
 async def main_async(base_dir: str = ".") -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # httpx logs full request URLs at INFO — those include the bot token in the
+    # api.telegram.org/bot<TOKEN>/... path. Silence them so secrets never hit logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     ensure_bot_token(base_dir)
     settings = load_settings(base_dir=base_dir)
     store = Store(settings.db_path, settings.secret_key)
