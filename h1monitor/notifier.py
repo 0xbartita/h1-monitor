@@ -22,10 +22,30 @@ def _clip(s: str, n: int = _MAX_FIELD) -> str:
     return s if len(s) <= n else s[:n].rstrip() + "…"
 
 
+# Human labels for HackerOne's raw scope-field keys (see differ._SCOPE_FIELDS).
+_FIELD_LABELS = {
+    "eligible_for_bounty": "Bounty eligible",
+    "eligible_for_submission": "Submission eligible",
+    "max_severity": "Max severity",
+    "instruction": "Instruction",
+    "confidentiality_requirement": "Confidentiality requirement",
+    "integrity_requirement": "Integrity requirement",
+    "availability_requirement": "Availability requirement",
+}
+
+
+def _field_label(field: str) -> str:
+    """Readable name for a scope field. Unmapped keys fall back to a
+    de-underscored, sentence-cased form (e.g. 'some_new_field' → 'Some new field')."""
+    return _FIELD_LABELS.get(field) or field.replace("_", " ").capitalize()
+
+
 def _field_value(v) -> str:
-    """Render one old/new field value for an alert. A cleared value (null or
-    empty) reads as a plain '(none)' instead of leaking Python's 'None'; real
-    values (text, booleans) are shown as-is (clipped if huge)."""
+    """Render one old/new field value for an alert. Booleans read as yes/no; a
+    cleared value (null or empty) reads as a plain '(none)' instead of leaking
+    Python's 'None'; other values are shown as-is (clipped if huge)."""
+    if isinstance(v, bool):
+        return "yes" if v else "no"
     if v is None or v == "":
         return "(none)"
     return _clip(str(v))
@@ -119,7 +139,7 @@ def _change_line(c: Change) -> str:
         for field, pair in (d.get("fields") or {}).items():
             a, b = pair
             rows.append(
-                f"     {escape_html(field)}: "
+                f"     {escape_html(_field_label(field))}: "
                 + _TRANSITION.format(
                     a=escape_html(_field_value(a)), b=escape_html(_field_value(b))
                 )

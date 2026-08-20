@@ -143,7 +143,8 @@ def test_cleared_scope_field_reads_plainly_not_python_none():
     text = format_change(c)
     assert "<code>None</code>" not in text   # no raw Python repr in the message
     assert "(none)" in text                   # cleared value shown cleanly
-    assert "False → True" in text.replace("<code>", "").replace("</code>", "")
+    plain = text.replace("<code>", "").replace("</code>", "")
+    assert "Bounty eligible: no → yes" in plain  # humanized name + yes/no
 
 
 def test_scope_field_set_from_empty_reads_plainly():
@@ -156,6 +157,24 @@ def test_scope_field_set_from_empty_reads_plainly():
     text = format_change(c)
     assert "<code>None</code>" not in text
     assert "(none)" in text and "test in prod" in text
+
+
+def test_scope_field_names_are_humanized():
+    """Raw API field names and booleans read like English, not code:
+    'eligible_for_bounty: False → True' becomes 'Bounty eligible: no → yes'."""
+    c = Change(
+        frozenset({ChangeType.SCOPE_MODIFIED}), "acme", "Acme", "open",
+        "Scope changed",
+        {"scope_key": "URL:a.com",
+         "fields": {
+             "eligible_for_submission": (True, False),
+             "max_severity": ("high", "critical"),
+         }},
+    )
+    plain = format_change(c).replace("<code>", "").replace("</code>", "")
+    assert "eligible_for_submission" not in plain
+    assert "Submission eligible: yes → no" in plain
+    assert "Max severity: high → critical" in plain
 
 
 @pytest.mark.asyncio
