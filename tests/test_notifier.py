@@ -39,7 +39,40 @@ def test_scope_change_format_has_name_and_asset():
     text = format_change(c)
     assert "Acme" in text
     assert "(acme)" not in text  # redundant handle-in-parens removed; URL carries it
-    assert "Scope added" in text and "URL:a.com" in text
+    # only the asset is copyable; the 'URL:' type prefix stays out of the code span
+    assert "Scope added" in text and "<code>a.com</code>" in text and "URL:" in text
+
+
+def test_scope_asset_is_copyable_without_the_type_prefix():
+    """Tap-to-copy must yield a clean asset. Only the identifier sits in the
+    <code> span; the 'URL:' type prefix stays plain text beside it."""
+    c = Change(
+        frozenset({ChangeType.SCOPE_ADDED}), "payoneer", "Payoneer", "open",
+        "scope added", {"scope_key": "URL:myaccount.sandbox.payoneer.com"},
+    )
+    text = format_change(c)
+    assert "<code>myaccount.sandbox.payoneer.com</code>" in text  # asset alone is copyable
+    assert "<code>URL:" not in text                               # prefix never inside the span
+    assert "URL:" in text.replace("<code>", "").replace("</code>", "")  # type still visible
+
+
+def test_wildcard_scope_copies_just_the_pattern():
+    c = Change(
+        frozenset({ChangeType.SCOPE_REMOVED}), "acme", "Acme", "open",
+        "scope removed", {"scope_key": "WILDCARD:*.a2verify.com"},
+    )
+    text = format_change(c)
+    assert "<code>*.a2verify.com</code>" in text
+    assert "<code>WILDCARD:" not in text
+
+
+def test_scope_key_without_a_type_prefix_is_fully_copyable():
+    """Defensive: a key with no 'TYPE:' prefix still renders as one code span."""
+    c = Change(
+        frozenset({ChangeType.SCOPE_ADDED}), "acme", "Acme", "open",
+        "scope added", {"scope_key": "bareidentifier"},
+    )
+    assert "<code>bareidentifier</code>" in format_change(c)
 
 
 def test_scope_change_includes_clickable_program_url():
@@ -63,7 +96,7 @@ def test_group_shows_one_header_for_multiple_scopes():
     assert len(msgs) == 1
     text = msgs[0]
     assert text.count('href="https://hackerone.com/acme"') == 1  # one header, not repeated
-    assert "URL:a.com" in text and "URL:b.com" in text
+    assert "<code>a.com</code>" in text and "<code>b.com</code>" in text
 
 
 def test_bounty_and_state_transitions_styled():

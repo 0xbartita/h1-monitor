@@ -123,6 +123,16 @@ def _format_new_program(c: Change) -> str:
 _TRANSITION = "<code>{a}</code> → <code>{b}</code>"
 
 
+def _scope_key_html(key: str) -> str:
+    """Render a scope key so ONLY the asset is the copyable monospace span. The
+    'URL:'/'WILDCARD:'/… type prefix stays plain text beside it, so a tap-to-copy
+    yields a clean asset (myaccount.example.com) with no 'URL:' noise attached."""
+    kind, sep, ident = key.partition(":")  # split on the first ':' only
+    if not sep:  # no type prefix — the whole key is the asset
+        return f"<code>{escape_html(key)}</code>"
+    return f"{escape_html(kind)}: <code>{escape_html(ident)}</code>"
+
+
 def _change_line(c: Change) -> str:
     """One styled line describing a single change, technical bits in monospace."""
     t = c.primary_type
@@ -130,11 +140,11 @@ def _change_line(c: Change) -> str:
     key = d.get("scope_key")
 
     if key and t == ChangeType.SCOPE_ADDED:
-        return f"➕ <b>Scope added</b>\n     <code>{escape_html(key)}</code>"
+        return f"➕ <b>Scope added</b>\n     {_scope_key_html(key)}"
     if key and t == ChangeType.SCOPE_REMOVED:
-        return f"➖ <b>Scope removed</b>\n     <code>{escape_html(key)}</code>"
+        return f"➖ <b>Scope removed</b>\n     {_scope_key_html(key)}"
     if key:  # any other scope-level change (severity, eligibility, instruction…)
-        head = f"✏️ <b>Scope changed</b>\n     <code>{escape_html(key)}</code>"
+        head = f"✏️ <b>Scope changed</b>\n     {_scope_key_html(key)}"
         rows = []
         for field, pair in (d.get("fields") or {}).items():
             a, b = pair
