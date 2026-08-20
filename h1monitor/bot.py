@@ -14,8 +14,7 @@ BOT_COMMANDS = [
     BotCommand("start", "Show status and capture your chat"),
     BotCommand("setup", "Add your HackerOne API key (message auto-deleted)"),
     BotCommand("config", "Choose which alerts you receive"),
-    BotCommand("programs", "How many programs are monitored"),
-    BotCommand("status", "Poll interval, credentials, settings"),
+    BotCommand("status", "What's watched, check intervals, settings"),
     BotCommand("help", "List all commands"),
 ]
 
@@ -185,20 +184,20 @@ def config_prompt(npriv: int = 0, priv_sc: int = 0) -> str:
     )
 
 
-def programs_text(npub: int, npriv: int, pub_sc: int, priv_sc: int) -> str:
-    return (
-        "📡 <b>Under watch</b>\n\n"
-        f"🌐 Public — <b>{npub:,}</b> programs · <b>{pub_sc:,}</b> scopes\n"
-        f"🔒 Private — <b>{npriv:,}</b> programs · <b>{priv_sc:,}</b> scopes\n\n"
-        "Every scope, public and private, is tracked automatically."
-    )
-
-
-def status_text(prefs: Preferences, has_creds: bool) -> str:
+def status_text(
+    prefs: Preferences,
+    has_creds: bool,
+    npub: int,
+    npriv: int,
+    pub_sc: int,
+    priv_sc: int,
+) -> str:
     api = "✅ connected" if has_creds else "❌ not set"
     paused = "on" if prefs.exclude_paused else "off"
     return (
         "📊 <b>Status</b>\n\n"
+        f"🌐 Public — <b>{npub:,}</b> programs · <b>{pub_sc:,}</b> scopes\n"
+        f"🔒 Private — <b>{npriv:,}</b> programs · <b>{priv_sc:,}</b> scopes\n\n"
         f"🌐 Public check — every <b>{format_interval(prefs.poll_interval_minutes)}</b>\n"
         f"🔒 Private check — every <b>{format_interval(prefs.private_interval_minutes)}</b>\n"
         f"🔑 HackerOne API — {api}\n"
@@ -212,8 +211,7 @@ def help_text() -> str:
         "/start — status &amp; setup\n"
         "/setup — connect your API key (message auto-deleted)\n"
         "/config — choose which alerts you receive\n"
-        "/programs — how many programs &amp; scopes are watched\n"
-        "/status — check intervals &amp; settings\n"
+        "/status — what's watched, check intervals &amp; settings\n"
         "/help — show this list\n\n"
         "Everything — public <i>and</i> private, programs <i>and</i> scopes — "
         "is monitored automatically."
@@ -341,9 +339,11 @@ def build_application(settings: Settings, store: Store) -> Application:
         # The interval label button carries no action.
         await update.callback_query.answer()
 
-    async def programs(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
             return
+        prefs = store.get_preferences()
+        has = store.get_h1_credentials() is not None
         pub = store.load_snapshot("public")
         priv = store.load_snapshot("private")
         npub = len(pub.programs) if pub else 0
@@ -351,15 +351,8 @@ def build_application(settings: Settings, store: Store) -> Application:
         pub_sc = sum(len(p.scopes) for p in pub.programs.values()) if pub else 0
         priv_sc = sum(len(p.scopes) for p in priv.programs.values()) if priv else 0
         await update.message.reply_text(
-            programs_text(npub, npriv, pub_sc, priv_sc), parse_mode="HTML"
+            status_text(prefs, has, npub, npriv, pub_sc, priv_sc), parse_mode="HTML"
         )
-
-    async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
-            return
-        prefs = store.get_preferences()
-        has = store.get_h1_credentials() is not None
-        await update.message.reply_text(status_text(prefs, has), parse_mode="HTML")
 
     async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
@@ -369,7 +362,6 @@ def build_application(settings: Settings, store: Store) -> Application:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setup", setup))
     app.add_handler(CommandHandler("config", config))
-    app.add_handler(CommandHandler("programs", programs))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CallbackQueryHandler(on_toggle, pattern=r"^toggle:"))

@@ -4,7 +4,7 @@ from h1monitor.store import Store
 from h1monitor.config import Settings
 from h1monitor.bot import (
     is_owner, build_config_keyboard, apply_toggle, parse_setup_args,
-    change_type_label, programs_text, status_text, help_text, setup_text,
+    change_type_label, status_text, help_text, setup_text,
     start_text, BOT_COMMANDS, config_prompt,
     format_interval, step_interval, apply_interval_step,
     estimate_sweep_minutes, recommend_private_interval,
@@ -19,15 +19,16 @@ def test_change_type_label_covers_every_type():
         assert label and label != t.value  # human phrase, not the raw enum value
 
 
-def test_programs_text_formats_counts_with_separators():
-    txt = programs_text(449, 458, 11296, 14950)
+def test_status_text_folds_in_program_and_scope_counts():
+    # /programs was removed; its counts now live in /status
+    txt = status_text(Preferences.defaults(), True, 449, 458, 11296, 14950)
     assert "449" in txt and "458" in txt
     assert "11,296" in txt and "14,950" in txt  # thousands separators
     assert "Public" in txt and "Private" in txt
 
 
 def test_status_text_shows_both_intervals_and_creds():
-    txt = status_text(Preferences.defaults(), True)
+    txt = status_text(Preferences.defaults(), True, 0, 0, 0, 0)
     # defaults: public 30 -> "30 min", private 120 -> "2 h"
     assert "30 min" in txt and "2 h" in txt and "connected" in txt
 
@@ -110,9 +111,14 @@ def test_setup_text_links_the_api_token_page():
 def test_bot_commands_cover_all_handlers():
     names = {c.command for c in BOT_COMMANDS}
     assert names == {
-        "start", "setup", "config", "programs", "status", "help",
+        "start", "setup", "config", "status", "help",
     }
     assert all(c.description for c in BOT_COMMANDS)  # every command has a description
+
+
+def test_programs_command_is_fully_removed():
+    assert "/programs" not in help_text()
+    assert "programs" not in {c.command for c in BOT_COMMANDS}
 
 
 def _settings():
