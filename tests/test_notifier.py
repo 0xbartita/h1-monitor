@@ -130,6 +130,34 @@ def test_oversized_scope_change_stays_under_telegram_limit():
     assert all(huge not in m for m in msgs)             # raw giant value not emitted
 
 
+def test_cleared_scope_field_reads_plainly_not_python_none():
+    """When a scope field is cleared (e.g. t.co's instruction removed), the alert
+    must not leak Python's 'None'. Booleans and text values stay untouched."""
+    c = Change(
+        frozenset({ChangeType.SCOPE_MODIFIED}), "x", "X / xAI", "open",
+        "Scope changed",
+        {"scope_key": "URL:t.co",
+         "fields": {"instruction": ("do not report t.co issues", None),
+                    "eligible_for_bounty": (False, True)}},
+    )
+    text = format_change(c)
+    assert "<code>None</code>" not in text   # no raw Python repr in the message
+    assert "(none)" in text                   # cleared value shown cleanly
+    assert "False → True" in text.replace("<code>", "").replace("</code>", "")
+
+
+def test_scope_field_set_from_empty_reads_plainly():
+    """A field gaining a value (was empty) also reads cleanly on the old side."""
+    c = Change(
+        frozenset({ChangeType.SCOPE_MODIFIED}), "x", "X / xAI", "open",
+        "Scope changed",
+        {"scope_key": "URL:x.ai", "fields": {"instruction": (None, "test in prod")}},
+    )
+    text = format_change(c)
+    assert "<code>None</code>" not in text
+    assert "(none)" in text and "test in prod" in text
+
+
 @pytest.mark.asyncio
 async def test_send_changes_survives_a_failing_message():
     from h1monitor.notifier import Notifier

@@ -22,6 +22,15 @@ def _clip(s: str, n: int = _MAX_FIELD) -> str:
     return s if len(s) <= n else s[:n].rstrip() + "…"
 
 
+def _field_value(v) -> str:
+    """Render one old/new field value for an alert. A cleared value (null or
+    empty) reads as a plain '(none)' instead of leaking Python's 'None'; real
+    values (text, booleans) are shown as-is (clipped if huge)."""
+    if v is None or v == "":
+        return "(none)"
+    return _clip(str(v))
+
+
 def split_for_telegram(text: str, limit: int = _TG_LIMIT) -> list[str]:
     """Split a message into <=limit-char chunks on line boundaries (each of our
     lines carries balanced HTML tags, so newline splits stay valid). A lone line
@@ -112,7 +121,7 @@ def _change_line(c: Change) -> str:
             rows.append(
                 f"     {escape_html(field)}: "
                 + _TRANSITION.format(
-                    a=escape_html(_clip(str(a))), b=escape_html(_clip(str(b)))
+                    a=escape_html(_field_value(a)), b=escape_html(_field_value(b))
                 )
             )
         return head + ("\n" + "\n".join(rows) if rows else "")
