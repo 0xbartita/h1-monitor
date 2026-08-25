@@ -25,14 +25,11 @@ Public programs need no API key. Add yours and it watches your private invites t
 
 | Source | Needs a key? | Covers |
 |---|---|---|
-| **Public directory** | no | Every public program on the platform — ~449 programs, ~11.5k scopes |
+| **Public directory** | no | Every public program on the platform |
 | **Your private programs** | yes | The invite-only programs your API key can see |
 
-Public refreshes every **30 min** by default (~18 paged queries, no key). Private refreshes every
-**2 h**: scope details cost one API call per program and HackerOne rate-limits that endpoint
-under bursts, so h1monitor walks them **one at a time, self-throttling** — backing off the
-moment HackerOne pushes back. A full private sweep takes **~10–15 min** and never trips the
-limiter.
+Public refreshes every **30 min** by default, private every **2 h**. A full private sweep takes
+**~10–15 min**.
 
 > HackerOne has no webhooks for any of this, so h1monitor polls, snapshots, and diffs.
 
@@ -52,9 +49,6 @@ docker run -d --name h1monitor --restart unless-stopped \
   -e TELEGRAM_BOT_TOKEN=<your-token> -v h1monitor:/data \
   ghcr.io/0xbartita/h1-monitor
 ```
-
-*(or drop [`docker-compose.yml`](docker-compose.yml) in a folder with a `.env` and run
-`docker compose up -d` — that setup **auto-updates** itself as new versions ship)*
 
 No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
 
@@ -108,48 +102,3 @@ docker restart h1monitor
 **Updating.** Re-run the install one-liner — it pulls and restarts in place. On Docker,
 `docker pull ghcr.io/0xbartita/h1-monitor` then recreate the container. Compose users with the
 bundled Watchtower need do nothing.
-
-## Configuration
-
-Everything is configurable from `/config` in chat. These env vars exist for pre-seeding, and
-all are optional except the first — see [`.env.example`](.env.example).
-
-| Var | Purpose |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | **Required.** The bot cannot receive its own token |
-| `TELEGRAM_OWNER_CHAT_ID` | Auto-captured on first `/start` if omitted |
-| `H1_API_USERNAME` / `H1_API_TOKEN` | Seed HackerOne creds instead of using `/setup` |
-| `H1MON_SECRET_KEY` | Fernet key for stored creds; auto-generated to `h1mon_secret.key` (0600) |
-| `H1MON_DB_PATH` | SQLite path (default `./h1monitor.db`) |
-| `H1_DIRECTORY_COOKIE` | Session cookie for the directory query, if anonymous access ever fails |
-
-## Security
-
-- **Owner-only.** After `/start` captures your chat, commands from anyone else are ignored.
-- **Credentials encrypted at rest** with Fernet; the database and keyfile are `0600`.
-- **The `/setup` message is deleted** the moment the key is read, and secrets are never logged.
-- **Residual risk:** sending your key over Telegram means it transits their servers and sits in
-  chat history until that deletion. Seed `H1_API_USERNAME` / `H1_API_TOKEN` via env instead if
-  you want zero chat exposure.
-- **One token, one copy.** Telegram lets a single instance poll a bot token, so a second
-  machine needs its own bot — otherwise the two fight and one dies with
-  `Conflict: terminated by other getUpdates request`.
-
-## Caveats
-
-- The public directory feed uses HackerOne's **undocumented internal GraphQL** — the same
-  mechanism community tools rely on. It's less stable than the official REST API and may need
-  maintenance if HackerOne changes it. Everything else rides the official API.
-- The Hacker API exposes bounty **eligibility** and **max severity**, not bounty-table amounts,
-  so `bounty_changed` reflects those rather than exact payouts.
-- Each install keeps its own state — a fresh box starts from a clean baseline and needs
-  `/start` and `/setup` again.
-
-## Development
-
-```bash
-pip install -e '.[dev]'
-pytest -q
-```
-
-135 tests, no network access required — the HackerOne and Telegram clients are stubbed.
