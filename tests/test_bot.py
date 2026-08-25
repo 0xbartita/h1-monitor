@@ -260,21 +260,39 @@ def test_interval_change_wakes_the_loop_it_affects(tmp_path):
     assert rung == ["public"]
 
 
-def test_status_shows_the_running_version(tmp_path):
+def test_status_carries_no_version_stamp(tmp_path):
+    # /status answers "what is it watching right now". The version lives on
+    # /start, so it is not repeated under every status check.
     txt = status_text(Preferences.defaults(), True, 1, 1, 1, 1, version="0.1.0")
-    assert "0.1.0" in txt
+    assert "0.1.0" not in txt
+    assert "Version" not in txt
 
 
-def test_status_offers_a_tappable_upgrade_when_one_exists(tmp_path):
+def test_status_stays_quiet_about_updates(tmp_path):
     txt = status_text(
         Preferences.defaults(), True, 1, 1, 1, 1,
         version="0.1.0", latest=("v0.2.0", "https://example.com/rel"),
     )
+    assert "0.2.0" not in txt and "href" not in txt
+
+
+def test_start_shows_the_running_version():
+    assert "0.1.0" in start_text(True, version="0.1.0")
+
+
+def test_start_offers_a_tappable_upgrade_when_one_exists():
+    txt = start_text(True, version="0.1.0",
+                     latest=("v0.2.0", "https://example.com/rel"))
     assert 'href="https://example.com/rel"' in txt
     assert "0.2.0" in txt
     # the release page explains how to upgrade; the bot doesn't guess
     for cmd in ("docker pull", "systemctl", "install.sh"):
         assert cmd not in txt
+
+
+def test_start_does_not_advertise_the_command_menu():
+    # Telegram already shows the command list beside the input box.
+    assert "Tap the menu" not in start_text(True)
 
 
 def test_start_mentions_an_available_update():

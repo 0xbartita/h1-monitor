@@ -205,8 +205,7 @@ def start_text(has_creds: bool, version: str = __version__, latest=None) -> str:
         f"{setup_line}\n"
         "🔔 Alerts: <b>on</b> — fine-tune them with /config\n\n"
         + _update_line(version, latest)
-        + "Tap the menu (<code>/</code>) to see everything I can do.\n\n"
-        f"🏷 v{version} · 📣 {channel_link()} for release news"
+        + f"🏷 v{version} · 📣 {channel_link()} for release news"
     )
 
 
@@ -277,8 +276,7 @@ def status_text(
         f"🌐 Public check — every <b>{format_interval(prefs.poll_interval_minutes)}</b>\n"
         f"🔒 Private check — every <b>{format_interval(prefs.private_interval_minutes)}</b>\n"
         f"🔑 HackerOne API — {api}\n"
-        f"🙈 Hide changes on paused programs — <b>{paused}</b>\n\n"
-        + version_line(version, tag, url)
+        f"🙈 Hide changes on paused programs — <b>{paused}</b>"
     )
 
 
