@@ -2,7 +2,7 @@
 
 **Watch HackerOne for scope changes and get them in Telegram, minutes after they land.**
 
-New assets appear in a program's scope long before anyone writes about them. h1monitor polls
+New assets appear in a program's scope long before anyone writes about them. h1-monitor polls
 HackerOne, diffs each snapshot against the last, and pushes only what changed to your chat —
 so a fresh target reaches you while it's still fresh.
 
@@ -34,8 +34,7 @@ Public programs need no API key. Add yours and it watches your private invites t
 | **Public directory** | no | Every public program on the platform |
 | **Your private programs** | yes | The invite-only programs your API key can see |
 
-Public refreshes every **30 min** by default, private every **2 h**. A full private sweep takes
-**~10–15 min**.
+Public refreshes every **30 min** by default, private every **2h**.
 
 ## Install
 
@@ -60,7 +59,7 @@ docker run -d --name h1monitor --restart unless-stopped \
 
 No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
 
-📣 Join [@h1_monitor](https://t.me/h1_monitor) to hear when a new version ships.
+📣 Join [@h1_monitor](https://t.me/h1_monitor) to hear when a new bot version ships.
 
 ## Then, in Telegram
 
@@ -73,13 +72,6 @@ No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
 | `/help` | The list above |
 
 Get your API credentials from [hackerone.com/settings/api_token](https://hackerone.com/settings/api_token/edit).
-Skip `/setup` entirely if you only care about public programs.
-
-The first check stays quiet — it just records what's already there, so you don't get
-thousands of alerts for programs that existed before you installed. Alerts start from
-the second check. Your private programs start
-scanning the moment you send `/setup`, and that takes about 10–15 minutes. `/status` says
-**scanning now** until it finishes.
 
 ## What you get alerted about
 
