@@ -242,8 +242,10 @@ def setup_usage() -> str:
 
 def setup_saved() -> str:
     return (
-        "🔐 <b>API key saved</b> — and your message was deleted.\n"
-        "Your private programs start syncing on the next check."
+        "🔐 <b>API key saved</b> — and your message was deleted.\n\n"
+        "🔄 <b>Scanning your private programs now.</b>\n"
+        "This takes about 10-15 minutes. /status says <b>scanning now</b> "
+        "until it is done, and I will message you the moment it is."
     )
 
 
@@ -265,14 +267,27 @@ def status_text(
     priv_sc: int,
     version: str = __version__,
     latest=None,
+    private_ready: bool = True,
 ) -> str:
     api = "✅ connected" if has_creds else "❌ not set"
     paused = "on" if prefs.exclude_paused else "off"
     tag, url = latest if latest else (None, None)
+    # The private snapshot is written once, at the end of a sweep that takes
+    # 10-15 minutes, so a plain '0 programs' sits there the whole time and
+    # reads as a broken bot. Say what is actually happening.
+    if has_creds and not private_ready:
+        private_line = (
+            "🔒 Private — <b>scanning now</b> · first pass takes ~10-15 min\n"
+        )
+    else:
+        private_line = (
+            f"🔒 Private — <b>{npriv:,}</b> programs · <b>{priv_sc:,}</b> scopes\n"
+        )
     return (
         "📊 <b>Status</b>\n\n"
         f"🌐 Public — <b>{npub:,}</b> programs · <b>{pub_sc:,}</b> scopes\n"
-        f"🔒 Private — <b>{npriv:,}</b> programs · <b>{priv_sc:,}</b> scopes\n\n"
+        + private_line
+        + "\n"
         f"🌐 Public check — every <b>{format_interval(prefs.poll_interval_minutes)}</b>\n"
         f"🔒 Private check — every <b>{format_interval(prefs.private_interval_minutes)}</b>\n"
         f"🔑 HackerOne API — {api}\n"
@@ -460,6 +475,7 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
             status_text(
                 prefs, has, npub, npriv, pub_sc, priv_sc,
                 latest=store.get_known_release(),
+                private_ready=store.has_baseline("private"),
             ),
             parse_mode="HTML", disable_web_page_preview=True,
         )

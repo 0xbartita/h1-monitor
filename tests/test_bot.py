@@ -322,3 +322,35 @@ def test_a_group_is_told_to_use_a_private_chat_not_that_it_is_taken():
     from h1monitor.bot import use_private_chat_text
     assert "privately" in use_private_chat_text()
     assert "already in use" not in use_private_chat_text()
+
+
+def test_status_says_scanning_while_the_first_private_sweep_runs():
+    # The private snapshot is written once, at the end of a 10-15 minute sweep,
+    # so a bare "0 programs" sits there the whole time and reads as a dead bot.
+    txt = status_text(Preferences.defaults(), True, 449, 0, 41214, 0,
+                      private_ready=False)
+    assert "scanning now" in txt
+    assert "0</b> programs" not in txt
+
+
+def test_status_shows_the_real_count_once_the_sweep_has_finished():
+    txt = status_text(Preferences.defaults(), True, 449, 12, 41214, 900,
+                      private_ready=True)
+    assert "scanning now" not in txt
+    assert "12" in txt
+
+
+def test_status_does_not_claim_to_be_scanning_without_a_key():
+    # No API key means nothing to scan — don't imply work is happening.
+    txt = status_text(Preferences.defaults(), False, 449, 0, 41214, 0,
+                      private_ready=False)
+    assert "scanning now" not in txt
+
+
+def test_setup_confirmation_sets_expectations():
+    from h1monitor.bot import setup_saved
+    txt = setup_saved()
+    assert "Scanning your private programs now" in txt
+    assert "10-15" in txt
+    # Must match what /status actually says, or the two contradict each other.
+    assert "scanning now" in txt

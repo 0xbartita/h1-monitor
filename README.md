@@ -70,9 +70,9 @@ Skip `/setup` entirely if you only care about public programs.
 
 The first check stays quiet — it just records what's already there, so you don't get
 thousands of alerts for programs that existed before you installed. Alerts start from
-the second check. The private sweep
-begins the moment you send `/setup` — no restart, no waiting for the next tick — and fills in
-gradually from there, so `/status` shows the count climbing for ~10–15 min.
+the second check. Your private programs start
+scanning the moment you send `/setup`, and that takes about 10–15 minutes. `/status` says
+**scanning now** until it finishes.
 
 ## What you get alerted about
 
