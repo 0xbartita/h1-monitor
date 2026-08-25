@@ -89,6 +89,18 @@ unit="$HOME/.config/systemd/user/h1monitor.service"
 if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
     info "Setting up the systemd user service (runs 24/7, restarts on crash) ..."
     mkdir -p "$(dirname "$unit")"
+    # The app logs to stderr. Pin that to a file the user can tail, rather than
+    # relying on the journal — a user journal isn't readable on every box.
+    # `append:` needs systemd 240+; older systemd gets the journal instead.
+    sd_ver="$(systemctl --version 2>/dev/null | head -1 | tr -cd '0-9 ' | tr -s ' ' | cut -d' ' -f2)"
+    logfile="${INSTALL_DIR}/h1monitor.log"
+    if [ "${sd_ver:-0}" -ge 240 ] 2>/dev/null; then
+        log_lines="StandardOutput=append:${logfile}"$'\n'"StandardError=append:${logfile}"
+        watch_cmd="tail -f ${logfile}"
+    else
+        log_lines=""
+        watch_cmd="journalctl --user -u h1monitor -f"
+    fi
     cat > "$unit" <<EOF
 [Unit]
 Description=h1monitor — HackerOne change monitor
@@ -100,6 +112,7 @@ Type=simple
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=${INSTALL_DIR}
 ExecStart=${INSTALL_DIR}/.venv/bin/python -m h1monitor
+${log_lines}
 Restart=on-failure
 RestartSec=15
 
@@ -113,7 +126,7 @@ EOF
     sleep 2
     if systemctl --user is-active --quiet h1monitor; then
         ok "h1monitor is running."
-        manage=$'systemctl --user status h1monitor        # is it running?\njournalctl --user -u h1monitor -f        # watch it work'
+        manage=$'systemctl --user status h1monitor   # is it running?\n'"${watch_cmd}"$'   # watch it work'
     else
         warn "Service installed but not active — inspect with: systemctl --user status h1monitor"
         manage="systemctl --user status h1monitor"
