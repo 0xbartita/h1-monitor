@@ -34,11 +34,9 @@ Public programs need no API key. Add yours and it watches your private invites t
 Public refreshes every **30 min** by default, private every **2 h**. A full private sweep takes
 **~10–15 min**.
 
-> HackerOne has no webhooks for any of this, so h1monitor polls, snapshots, and diffs.
-
 ## Install
 
-**One command** — builds a venv, installs, asks for your bot token, runs it 24/7 via systemd
+**One command** — installs it, asks for your bot token, and starts it running 24/7
 (needs **Python 3.11+** and **git**):
 
 ```bash
@@ -61,21 +59,11 @@ No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
 
 | Command | What it does |
 |---|---|
-| `/start <code>` | Claim the bot — from then on it only answers you |
+| `/start <code>` | Claim the bot — the installer prints your code. From then on it only answers you |
 | `/setup <username> <token>` | Connect HackerOne for private programs. The message is **deleted the instant** the key is captured |
 | `/config` | Toggle each alert type, and set both check intervals |
 | `/status` | Programs and scopes watched, intervals, whether the API key is connected |
 | `/help` | The list above |
-
-**The claim code** stops anyone else taking your bot — bot names are searchable, so
-without it whoever messaged first would own it and get your alerts. The installer
-prints the code; it never leaves your machine. To see it again:
-
-```bash
-cd ~/h1-monitor && ./.venv/bin/python -m h1monitor --claim-code
-```
-
-On Docker: `docker exec h1monitor python -m h1monitor --claim-code`
 
 Get your API credentials from [hackerone.com/settings/api_token](https://hackerone.com/settings/api_token/edit).
 Skip `/setup` entirely if you only care about public programs.
@@ -91,19 +79,14 @@ Scope added · scope removed · scope changed (severity, eligibility, instructio
 eligibility · new public program launched · program paused or resumed · policy text edited ·
 private program gained or lost.
 
-Every one of those is its own switch in `/config` — including **Program paused or resumed**
-and **Policy text edited**, which you can turn on and off independently.
-
-**Hide other changes on paused programs** is on by default: a paused program isn't taking
-reports, so its scope churn is noise. You still get the one "paused" alert, so you always
-know why a program went quiet.
+Every one is its own switch in `/config`.
 
 Each alert is tagged 🌐 Public or 🔒 Private, and an asset that turns up *out of scope* is
 labelled as such, so you never chase a target that isn't one.
 
 ## Manage it
 
-Installed with the one-liner (systemd user service, state in `~/h1-monitor`):
+Installed with the one-liner — everything lives in `~/h1-monitor`:
 
 ```bash
 systemctl --user status h1monitor     # is it running?
