@@ -31,10 +31,11 @@ prompt_tty() {
     local val=""
     [ -r /dev/tty ] || die "No terminal available for input. Re-run interactively, or preset TELEGRAM_BOT_TOKEN in $INSTALL_DIR/.env"
     printf '%s' "$1" > /dev/tty
-    # -s: keep the secret off the screen (and out of terminal scrollback and any
-    # screenshot). Echo the newline ourselves, since a silent read swallows it.
-    IFS= read -rs val < /dev/tty
-    printf '\n' > /dev/tty
+    # Deliberately echoed. A hidden prompt gives no sign the paste landed, and a
+    # half-pasted token looks exactly like a good one until the service fails to
+    # start. The trade is that the token stays in scrollback -- clear it with
+    # `clear` afterwards, and crop it out of any screenshot.
+    IFS= read -r val < /dev/tty
     printf '%s' "$val"
 }
 
@@ -141,8 +142,14 @@ EOF
         ok "h1monitor is running."
         manage=$'systemctl --user status h1monitor        # is it running?\njournalctl --user -u h1monitor -f        # watch it work'
     else
-        warn "Service installed but not active — inspect with: systemctl --user status h1monitor"
-        manage="systemctl --user status h1monitor"
+        warn "h1monitor is NOT running. Here is what it said:"
+        echo
+        journalctl --user -u h1monitor -n 15 --no-pager 2>/dev/null \
+            | sed 's/^/    /' || true
+        echo
+        warn "The usual cause is a mistyped bot token. Fix it in $INSTALL_DIR/.env"
+        warn "then run: systemctl --user restart h1monitor"
+        manage=$'systemctl --user restart h1monitor       # after fixing .env\njournalctl --user -u h1monitor -f        # watch it work' 
     fi
 else
     warn "No systemd user session here — start it yourself:"
