@@ -157,22 +157,13 @@ else
 fi
 
 # --- 6. what's left (the two Telegram DMs) ---------------------------------
-# The bot answers nobody until someone claims it with this code, which never
-# leaves this machine. Printing it here saves the user digging through a log.
-claim="$(./.venv/bin/python -m h1monitor --claim-code 2>/dev/null | tail -1)"
-case "$claim" in
-    *[!0-9a-f]* | "") claim_step="/start <your code>              claim the bot — see the code with:
-                                  cd $INSTALL_DIR && ./.venv/bin/python -m h1monitor --claim-code" ;;
-    *)                claim_step="/start $claim              claim the bot (only you can, with this code)" ;;
-esac
-
 echo
 ok "Setup complete."
 cat <<EOF
 
 Last step — open Telegram and DM your bot:
 
-  1. ${claim_step}
+  1. /start                       claim the bot (only you can command it after that)
   2. /setup <username> <token>    connect HackerOne, for your private programs
                                   (both are on https://hackerone.com/settings/api_token/edit)
 

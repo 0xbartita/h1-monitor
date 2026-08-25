@@ -3,7 +3,7 @@ from cryptography.fernet import Fernet
 from h1monitor.store import Store
 from h1monitor.config import Settings
 from h1monitor.bot import (
-    claim_code, try_claim, unclaimed, deny_text,
+    claim_if_unowned, unclaimed, already_claimed_text,
     is_owner, build_config_keyboard, apply_toggle, parse_setup_args,
     change_type_label, status_text, help_text, setup_text,
     start_text, BOT_COMMANDS, config_prompt,
@@ -130,50 +130,35 @@ def _store(tmp_path):
     return Store(str(tmp_path / "b.db"), Fernet.generate_key())
 
 
-def test_talking_to_the_bot_does_not_make_you_its_owner(tmp_path):
-    # This is the whole point of the claim code: merely sending a command must
-    # never take ownership. It used to, so whoever found the bot first won it.
+def test_first_start_claims_the_bot(tmp_path):
     st, s = _store(tmp_path), _settings()
-    assert is_owner(555, st, s) is False
-    assert st.get_owner_chat_id() is None
-
-
-def test_right_code_claims_the_bot_once(tmp_path):
-    st, s = _store(tmp_path), _settings()
-    code = claim_code(st)
-    assert try_claim(555, f"/start {code}", st, s) is True
+    assert unclaimed(st, s) is True
+    assert claim_if_unowned(555, st, s) is True
     assert is_owner(555, st, s) is True
     assert st.get_owner_chat_id() == 555
-    # The code is spent, so a second chat cannot reuse it.
-    assert try_claim(999, f"/start {code}", st, s) is False
+
+
+def test_a_second_chat_cannot_take_it(tmp_path):
+    st, s = _store(tmp_path), _settings()
+    claim_if_unowned(555, st, s)
+    assert claim_if_unowned(999, st, s) is False
     assert is_owner(999, st, s) is False
-
-
-def test_wrong_or_missing_code_claims_nothing(tmp_path):
-    st, s = _store(tmp_path), _settings()
-    claim_code(st)
-    assert try_claim(555, "/start", st, s) is False
-    assert try_claim(555, "/start wrong", st, s) is False
-    assert try_claim(555, "", st, s) is False
-    assert st.get_owner_chat_id() is None
-    assert unclaimed(st, s) is True
-
-
-def test_code_is_case_insensitive_and_survives_a_restart(tmp_path):
-    # The operator copies it out of a log, so tolerate case; and a restart must
-    # not invalidate the code the installer already printed.
-    st, s = _store(tmp_path), _settings()
-    code = claim_code(st)
-    assert claim_code(st) == code
-    assert try_claim(555, f"/start {code.upper()}", st, s) is True
+    assert st.get_owner_chat_id() == 555
 
 
 def test_a_group_chat_cannot_claim_the_bot(tmp_path):
     # Claiming in a group would hand every private-program alert to everyone in
     # it, so only a one-to-one chat may claim.
     st, s = _store(tmp_path), _settings()
-    code = claim_code(st)
-    assert try_claim(-100, f"/start {code}", st, s, private=False) is False
+    assert claim_if_unowned(-100, st, s, private=False) is False
+    assert st.get_owner_chat_id() is None
+
+
+def test_other_commands_never_claim(tmp_path):
+    # Only /start claims. is_owner is a pure check, so /status from a stranger
+    # must not quietly make them the owner.
+    st, s = _store(tmp_path), _settings()
+    assert is_owner(999, st, s) is False
     assert st.get_owner_chat_id() is None
 
 
@@ -181,16 +166,22 @@ def test_pinned_owner_in_env_cannot_be_claimed_away(tmp_path):
     st = _store(tmp_path)
     s = Settings("bot", 111, ":memory:", Fernet.generate_key(), None, None, None)
     assert unclaimed(st, s) is False
-    assert try_claim(999, "/start whatever", st, s) is False
+    assert claim_if_unowned(999, st, s) is False
     assert is_owner(111, st, s) is True
 
 
-def test_refusal_text_says_which_situation_it_is(tmp_path):
+def test_clearing_the_owner_allows_a_fresh_claim(tmp_path):
+    # The escape hatch behind --reset-owner.
     st, s = _store(tmp_path), _settings()
-    assert "no owner yet" in deny_text(st, s)
-    assert claim_code(st) not in deny_text(st, s)   # never leak the code itself
-    try_claim(555, f"/start {claim_code(st)}", st, s)
-    assert "already in use" in deny_text(st, s)
+    claim_if_unowned(999, st, s)
+    st.clear_owner_chat_id()
+    assert unclaimed(st, s) is True
+    assert claim_if_unowned(555, st, s) is True
+    assert is_owner(555, st, s) is True
+
+
+def test_refusal_text_does_not_leak_anything(tmp_path):
+    assert "already in use" in already_claimed_text()
 
 
 def test_fixed_owner_from_settings(tmp_path):
@@ -305,3 +296,11 @@ def test_start_points_people_at_the_updates_channel():
 
 def test_help_points_people_at_the_updates_channel():
     assert 'href="https://t.me/h1_monitor"' in help_text()
+
+
+def test_a_group_is_told_to_use_a_private_chat_not_that_it_is_taken():
+    # A fresh bot refusing a group must not claim to be "already in use" — that
+    # is false, and sends the operator looking for a hijack that never happened.
+    from h1monitor.bot import use_private_chat_text
+    assert "privately" in use_private_chat_text()
+    assert "already in use" not in use_private_chat_text()

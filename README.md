@@ -59,7 +59,7 @@ No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
 
 | Command | What it does |
 |---|---|
-| `/start <code>` | Claim the bot — the installer prints your code. From then on it only answers you |
+| `/start` | Claim the bot — from then on it only answers you |
 | `/setup <username> <token>` | Connect HackerOne for private programs. The message is **deleted the instant** the key is captured |
 | `/config` | Toggle each alert type, and set both check intervals |
 | `/status` | Programs and scopes watched, intervals, whether the API key is connected |

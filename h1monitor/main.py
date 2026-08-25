@@ -13,7 +13,7 @@ from h1monitor.config import (
     load_settings, Settings, ConfigError, load_dotenv, upsert_env_var,
 )
 from h1monitor.store import Store
-from h1monitor.bot import build_application, BOT_COMMANDS, unclaimed, claim_code
+from h1monitor.bot import build_application, BOT_COMMANDS, unclaimed
 from h1monitor.notifier import Notifier, split_for_telegram, describe_error
 from h1monitor.h1_client import H1Client
 from h1monitor.directory_client import DirectoryClient
@@ -49,34 +49,36 @@ def ensure_bot_token(
     out("Saved to .env — starting now. You won't be asked again.\n")
 
 
-def claim_banner(code: str) -> str:
-    """The startup notice telling the operator how to take ownership. Loud on
-    purpose: until someone claims the bot it answers nobody, and a quiet line
-    scrolls past in a log people only read when something is already wrong."""
+def claim_banner() -> str:
+    """Startup notice. Until someone sends /start the bot belongs to nobody and
+    answers nobody, so say that rather than sitting there looking idle."""
     rule = "=" * 60
     return (
         f"\n{rule}\n"
-        "  This bot has no owner yet, so it will not answer anyone.\n"
-        "  Open Telegram, find your bot, and send it exactly:\n"
-        f"\n      /start {code}\n\n"
-        "  That claims it. Nobody else can, without this code.\n"
+        "  No owner yet. Open Telegram, find your bot, and send it /start.\n"
+        "  Whoever sends /start first owns the bot from then on.\n"
         f"{rule}"
     )
 
 
-def print_claim_code(base_dir: str = ".") -> int:
-    """`python -m h1monitor --claim-code` — show the code without reading logs."""
+def reset_owner(base_dir: str = ".") -> int:
+    """`python -m h1monitor --reset-owner` - hand the bot back.
+
+    The first /start claims the bot, so this is the way out if the wrong chat
+    ever gets there first: forget the owner, then claim it yourself."""
     try:
         settings = load_settings(base_dir=base_dir)
     except ConfigError as e:
         print(f"Configuration error: {e}", file=sys.stderr)
         return 1
+    if settings.owner_chat_id is not None:
+        print("The owner is fixed by TELEGRAM_OWNER_CHAT_ID in .env - "
+              "remove that line to change it.")
+        return 1
     store = Store(settings.db_path, settings.secret_key)
     try:
-        if not unclaimed(store, settings):
-            print("This bot is already claimed.")
-            return 0
-        print(claim_code(store))
+        store.clear_owner_chat_id()
+        print("Owner cleared. Restart the bot, then send /start to claim it.")
         return 0
     finally:
         store.close()
@@ -168,7 +170,7 @@ async def main_async(base_dir: str = ".") -> None:
     # Before we touch the network: an unreachable Telegram must not be able to
     # hide the one thing the operator needs to read.
     if unclaimed(store, settings):
-        log.warning("%s", claim_banner(claim_code(store)))
+        log.warning("%s", claim_banner())
 
     app = build_application(settings, store, wake=wake)
     stop = asyncio.Event()
@@ -219,8 +221,8 @@ async def main_async(base_dir: str = ".") -> None:
 
 
 def run() -> None:
-    if "--claim-code" in sys.argv[1:]:
-        raise SystemExit(print_claim_code())
+    if "--reset-owner" in sys.argv[1:]:
+        raise SystemExit(reset_owner())
     try:
         asyncio.run(main_async())
     except ConfigError as e:

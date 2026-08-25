@@ -135,38 +135,43 @@ def _env(tmp_path, token="123:ABC"):
     return str(tmp_path)
 
 
-def test_claim_banner_shows_the_exact_command_to_send():
+def test_claim_banner_tells_you_what_to_send():
     from h1monitor.main import claim_banner
-    b = claim_banner("abc12345")
-    assert "/start abc12345" in b
-    assert "will not answer anyone" in b
+    b = claim_banner()
+    assert "/start" in b
+    assert "No owner yet" in b
 
 
-def test_print_claim_code_is_stable_and_stops_once_claimed(tmp_path, capsys):
-    from h1monitor.main import print_claim_code
+def test_reset_owner_lets_the_next_start_claim_it(tmp_path, capsys):
+    from h1monitor.main import reset_owner
     from h1monitor.config import load_settings
     from h1monitor.store import Store
+    from h1monitor.bot import unclaimed
 
     base = _env(tmp_path)
-    assert print_claim_code(base) == 0
-    first = capsys.readouterr().out.strip()
-    assert len(first) == 8 and all(c in "0123456789abcdef" for c in first)
-
-    # A restart must not invalidate the code the installer already printed.
-    assert print_claim_code(base) == 0
-    assert capsys.readouterr().out.strip() == first
-
     s = load_settings(base_dir=base)
     st = Store(s.db_path, s.secret_key)
-    st.set_owner_chat_id(555)
+    st.set_owner_chat_id(999)          # the wrong chat got there first
     st.close()
-    assert print_claim_code(base) == 0
-    assert "already claimed" in capsys.readouterr().out
+
+    assert reset_owner(base) == 0
+    assert "Owner cleared" in capsys.readouterr().out
+    st = Store(s.db_path, s.secret_key)
+    assert unclaimed(st, s) is True
+    st.close()
 
 
-def test_print_claim_code_reports_a_missing_token_cleanly(tmp_path, capsys):
-    from h1monitor.main import print_claim_code
-    assert print_claim_code(str(tmp_path)) == 1
+def test_reset_owner_refuses_when_the_owner_is_pinned_in_env(tmp_path, capsys):
+    (tmp_path / ".env").write_text(
+        "TELEGRAM_BOT_TOKEN=123:ABC\nTELEGRAM_OWNER_CHAT_ID=111\n")
+    from h1monitor.main import reset_owner
+    assert reset_owner(str(tmp_path)) == 1
+    assert "TELEGRAM_OWNER_CHAT_ID" in capsys.readouterr().out
+
+
+def test_reset_owner_reports_a_missing_token_cleanly(tmp_path, capsys):
+    from h1monitor.main import reset_owner
+    assert reset_owner(str(tmp_path)) == 1
     assert "TELEGRAM_BOT_TOKEN" in capsys.readouterr().err
 
 
