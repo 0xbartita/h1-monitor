@@ -79,7 +79,7 @@ Scope added · scope removed · scope changed (severity, eligibility, instructio
 eligibility · new public program launched · program paused or resumed · policy text edited ·
 private program gained or lost.
 
-Every one is its own switch in `/config`.
+Every one is its own switch in `/config`, and changes apply straight away — no restart.
 
 Each alert is tagged 🌐 Public or 🔒 Private, and an asset that turns up *out of scope* is
 labelled as such, so you never chase a target that isn't one.
@@ -91,7 +91,7 @@ Installed with the one-liner — everything lives in `~/h1-monitor`:
 ```bash
 systemctl --user status h1monitor     # is it running?
 journalctl --user -u h1monitor -f     # watch it work
-systemctl --user restart h1monitor    # after editing .env
+systemctl --user restart h1monitor    # only if you change your bot token
 ```
 
 Docker (state lives in the `h1monitor` volume):
