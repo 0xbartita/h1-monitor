@@ -160,7 +160,12 @@ def version_line(current: str, latest: str | None, url: str | None, install: str
     return f"🏷 Version <b>{_display(current)}</b>"
 
 
-_CHECK_EVERY = 6 * 60 * 60  # GitHub allows 60 unauthenticated calls an hour
+# Hourly. GitHub allows 60 unauthenticated calls an hour per IP and each copy
+# checks from its own address, so 24 calls a day is nowhere near the ceiling —
+# and a release reaches people within the hour instead of within six. There is
+# no push option here: webhooks need a public URL, which a self-hosted bot on a
+# laptop does not have.
+_CHECK_EVERY = 60 * 60
 
 
 async def update_check_loop(
