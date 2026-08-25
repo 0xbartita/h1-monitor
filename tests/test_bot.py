@@ -225,6 +225,9 @@ def test_status_offers_a_tappable_upgrade_when_one_exists(tmp_path):
     )
     assert 'href="https://example.com/rel"' in txt
     assert "0.2.0" in txt
+    # the release page explains how to upgrade; the bot doesn't guess
+    for cmd in ("docker pull", "systemctl", "install.sh"):
+        assert cmd not in txt
 
 
 def test_start_mentions_an_available_update():

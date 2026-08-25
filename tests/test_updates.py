@@ -2,8 +2,7 @@ import httpx
 import pytest
 
 from h1monitor.updates import (
-    UpdateClient, detect_install, is_newer, upgrade_html, update_notice,
-    version_line, DOCKER, SOURCE,
+    UpdateClient, is_newer, update_notice, version_line, channel_link,
 )
 
 
@@ -24,25 +23,6 @@ def test_is_newer_is_safe_on_junk_tags():
     assert is_newer("nightly", "0.1.0") is False
     assert is_newer("", "0.1.0") is False
     assert is_newer(None, "0.1.0") is False
-
-
-# --- install detection ------------------------------------------------------
-
-def test_detect_install_prefers_an_explicit_marker(monkeypatch):
-    monkeypatch.setenv("H1MON_INSTALL", "docker")
-    assert detect_install() == DOCKER
-
-
-def test_detect_install_spots_a_container(monkeypatch):
-    monkeypatch.delenv("H1MON_INSTALL", raising=False)
-    monkeypatch.setattr("os.path.exists", lambda p: p == "/.dockerenv")
-    assert detect_install() == DOCKER
-
-
-def test_detect_install_defaults_to_source(monkeypatch):
-    monkeypatch.delenv("H1MON_INSTALL", raising=False)
-    monkeypatch.setattr("os.path.exists", lambda p: False)
-    assert detect_install() == SOURCE
 
 
 # --- fetching the latest release -------------------------------------------
@@ -95,39 +75,40 @@ async def test_garbage_json_does_not_raise():
     assert await _client(handler).latest_release() is None
 
 
-# --- upgrade instructions ---------------------------------------------------
+# --- what the update message points at -------------------------------------
 
-def test_docker_instructions_pull_and_recreate():
-    html = upgrade_html(DOCKER)
-    assert "docker pull" in html
-    assert "docker rm -f" in html or "docker stop" in html
-    assert "systemctl" not in html          # never show the wrong path
-
-
-def test_source_instructions_rerun_the_installer():
-    html = upgrade_html(SOURCE)
-    assert "install.sh" in html
-    assert "docker pull" not in html
-
-
-def test_notice_links_the_release_and_matches_the_install():
-    notice = update_notice("0.1.0", "v0.2.0", "https://example.com/rel", DOCKER)
-    assert 'href="https://example.com/rel"' in notice   # clickable
+def test_notice_links_the_release_page_and_the_channel():
+    """The bot no longer guesses how you installed it — the release notes carry
+    the upgrade steps, and the channel carries the news."""
+    notice = update_notice("0.1.0", "v0.2.0", "https://example.com/rel")
+    assert 'href="https://example.com/rel"' in notice     # clickable release
     assert "0.1.0" in notice and "0.2.0" in notice
-    assert "docker pull" in notice
+    assert 'href="https://t.me/h1_monitor"' in notice     # clickable channel
+
+
+def test_notice_embeds_no_install_commands():
+    """Install-specific commands were guesswork and could send someone down the
+    wrong path; the release notes say it properly."""
+    notice = update_notice("0.1.0", "v0.2.0", "https://example.com/rel")
+    for cmd in ("docker pull", "docker rm", "systemctl", "install.sh"):
+        assert cmd not in notice
+
+
+def test_channel_link_is_a_real_anchor():
+    assert channel_link() == '<a href="https://t.me/h1_monitor">@h1_monitor</a>'
 
 
 # --- the /status line -------------------------------------------------------
 
 def test_status_shows_the_version_and_an_update_when_there_is_one():
-    line = version_line("0.1.0", "v0.2.0", "https://example.com/rel", SOURCE)
+    line = version_line("0.1.0", "v0.2.0", "https://example.com/rel")
     assert "0.1.0" in line
     assert "0.2.0" in line
     assert 'href="https://example.com/rel"' in line
 
 
 def test_status_shows_only_the_version_when_up_to_date():
-    line = version_line("0.2.0", "v0.2.0", "https://example.com/rel", SOURCE)
+    line = version_line("0.2.0", "v0.2.0", "https://example.com/rel")
     assert "0.2.0" in line
     assert "href" not in line              # nothing to click, nothing to do
     assert "update" not in line.lower()

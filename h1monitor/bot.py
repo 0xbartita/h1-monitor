@@ -10,10 +10,7 @@ from h1monitor.config import Settings
 from h1monitor.models import Preferences, ChangeType
 from h1monitor import __version__
 from h1monitor.notifier import escape_html
-from h1monitor.updates import (
-    is_newer, version_line, upgrade_html, detect_install,
-    UPDATES_CHANNEL, UPDATES_CHANNEL_HANDLE,
-)
+from h1monitor.updates import is_newer, version_line, channel_link
 
 # Registered with Telegram so typing "/" pops up an autocomplete menu.
 BOT_COMMANDS = [
@@ -174,10 +171,6 @@ def start_text(has_creds: bool, version: str = __version__, latest=None) -> str:
     )
 
 
-def channel_link() -> str:
-    return f'<a href="{UPDATES_CHANNEL}">{UPDATES_CHANNEL_HANDLE}</a>'
-
-
 def _update_line(version: str, latest) -> str:
     """A single nudge when a newer release exists, and nothing at all when it
     doesn't — a version banner on every /start would just be noise."""
@@ -188,8 +181,8 @@ def _update_line(version: str, latest) -> str:
         return ""
     return (
         f'🚀 <b>v{tag.lstrip("vV")} is available</b> — '
-        f'<a href="{escape_html(url)}">what changed</a>. '
-        "Send /status for how to upgrade.\n\n"
+        f'<a href="{escape_html(url)}">release notes</a>. '
+        "They explain how to upgrade.\n\n"
     )
 
 
@@ -238,8 +231,6 @@ def status_text(
     api = "✅ connected" if has_creds else "❌ not set"
     paused = "on" if prefs.exclude_paused else "off"
     tag, url = latest if latest else (None, None)
-    # Only spell out the upgrade steps when there is something to upgrade to.
-    upgrade_due = bool(tag and is_newer(tag, version))
     return (
         "📊 <b>Status</b>\n\n"
         f"🌐 Public — <b>{npub:,}</b> programs · <b>{pub_sc:,}</b> scopes\n"
@@ -248,8 +239,7 @@ def status_text(
         f"🔒 Private check — every <b>{format_interval(prefs.private_interval_minutes)}</b>\n"
         f"🔑 HackerOne API — {api}\n"
         f"⏸ Skip paused programs — <b>{paused}</b>\n\n"
-        + version_line(version, tag, url, detect_install())
-        + (f"\n\n{upgrade_html(detect_install())}" if upgrade_due else "")
+        + version_line(version, tag, url)
     )
 
 
