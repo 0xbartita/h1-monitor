@@ -20,6 +20,15 @@ REPO_URL="${H1MON_REPO:-https://github.com/0xbartita/h1-monitor.git}"
 INSTALL_DIR="${H1MON_DIR:-$HOME/h1-monitor}"
 PYTHON="${PYTHON:-python3}"
 
+# Set once we know the bot was already configured here, so a re-run reports
+# an upgrade instead of replaying first-time setup instructions.
+UPGRADE=0
+OLD_VERSION=""
+
+read_version() {
+    sed -n 's/^__version__ = "\(.*\)"/\1/p' "$1/h1monitor/__init__.py" 2>/dev/null | head -1
+}
+
 info() { printf '\033[1;34m▸\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m✓\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!\033[0m %s\n' "$*" >&2; }
@@ -49,8 +58,10 @@ ok "Prerequisites present ($("$PYTHON" -V 2>&1), git)."
 # --- 2. locate or fetch the repo -------------------------------------------
 if [ -f "./pyproject.toml" ] && grep -q 'name = "h1monitor"' ./pyproject.toml 2>/dev/null; then
     INSTALL_DIR="$(pwd)"
+    OLD_VERSION="$(read_version "$INSTALL_DIR")"
     info "Using this checkout: $INSTALL_DIR"
 elif [ -f "$INSTALL_DIR/pyproject.toml" ]; then
+    OLD_VERSION="$(read_version "$INSTALL_DIR")"
     info "Updating existing install at $INSTALL_DIR ..."
     git -C "$INSTALL_DIR" pull --ff-only >/dev/null 2>&1 || warn "Couldn't update; using the code already there."
 else
@@ -59,8 +70,19 @@ else
 fi
 cd "$INSTALL_DIR"
 
+# A bot token already in .env is the honest signal that this machine has been
+# set up before — more reliable than "the directory exists", which is equally
+# true of a first run that died halfway.
+if grep -qs '^TELEGRAM_BOT_TOKEN=.\+' .env 2>/dev/null; then
+    UPGRADE=1
+fi
+
 # --- 3. virtualenv + install -----------------------------------------------
-info "Building virtualenv and installing (this can take a minute) ..."
+if [ "$UPGRADE" = "1" ]; then
+    info "Upgrading h1monitor (this can take a minute) ..."
+else
+    info "Building virtualenv and installing (this can take a minute) ..."
+fi
 # Test for the pip binary, not for the directory. A venv that failed halfway --
 # Debian and Ubuntu pass the version check above but ship no python3-venv, and
 # Ctrl-C or a full disk do it too -- still leaves .venv/ behind. Checking only
@@ -102,7 +124,11 @@ fi
 # --- 5. run it: 24/7 via systemd where possible, else print how to start ----
 unit="$HOME/.config/systemd/user/h1monitor.service"
 if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
-    info "Setting up the systemd user service (runs 24/7, restarts on crash) ..."
+    if [ "$UPGRADE" = "1" ]; then
+        info "Restarting the service with the new version ..."
+    else
+        info "Setting up the systemd user service (runs 24/7, restarts on crash) ..."
+    fi
     mkdir -p "$(dirname "$unit")"
     cat > "$unit" <<EOF
 [Unit]
@@ -156,10 +182,23 @@ else
     manage="cd $INSTALL_DIR && ./.venv/bin/python -m h1monitor"
 fi
 
-# --- 6. what's left (the two Telegram DMs) ---------------------------------
+# --- 6. what's left --------------------------------------------------------
+# An upgrade gets a one-line result. Replaying "open Telegram and send /start"
+# to someone who did that months ago reads as though the run undid their setup.
 echo
-ok "Setup complete."
-cat <<EOF
+NEW_VERSION="$(read_version "$INSTALL_DIR")"
+if [ "$UPGRADE" = "1" ]; then
+    if [ -n "$OLD_VERSION" ] && [ -n "$NEW_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
+        ok "Upgraded $OLD_VERSION → $NEW_VERSION."
+    elif [ -n "$NEW_VERSION" ]; then
+        ok "Already on $NEW_VERSION — nothing to change."
+    else
+        ok "Up to date."
+    fi
+    printf '\n%s\n' "Your bot token, HackerOne key and settings are unchanged."
+else
+    ok "Setup complete."
+    cat <<EOF
 
 Last step — open Telegram and DM your bot:
 
@@ -173,3 +212,4 @@ what is already there; alerts start from the second one.
 Manage it:
   ${manage}
 EOF
+fi
