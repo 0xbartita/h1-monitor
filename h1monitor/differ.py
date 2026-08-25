@@ -99,9 +99,12 @@ def _diff_program(prev: Program, curr: Program) -> list[Change]:
             )
         )
     if prev.policy != curr.policy:
+        # Its own type, not PROGRAM_STATE. Sharing one meant a single /config
+        # switch governed "the program paused" and "the program edited its
+        # rules" together, so silencing one silenced the other.
         out.append(
             _mk(
-                {ChangeType.PROGRAM_STATE}, curr, "policy text changed",
+                {ChangeType.POLICY_CHANGED}, curr, "policy text changed",
                 {"policy_changed": True, "became_paused": False},
             )
         )

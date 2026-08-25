@@ -93,7 +93,11 @@ def test_program_state_became_paused_flag():
     assert c.submission_state == "paused"
 
 
-def test_policy_change_is_program_state():
+def test_policy_change_has_its_own_type():
+    # Separate from PROGRAM_STATE so /config can silence "the rules changed"
+    # without also silencing "the program paused", and the other way round.
     prev = Snapshot({"acme": _prog(policy="old")})
     curr = Snapshot({"acme": _prog(policy="new")})
-    assert any(ChangeType.PROGRAM_STATE in c.types for c in diff_api(prev, curr))
+    changes = diff_api(prev, curr)
+    assert any(ChangeType.POLICY_CHANGED in c.types for c in changes)
+    assert not any(ChangeType.PROGRAM_STATE in c.types for c in changes)

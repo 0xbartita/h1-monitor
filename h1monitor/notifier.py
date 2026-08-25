@@ -214,7 +214,9 @@ def _change_line(c: Change) -> str:
             a=escape_html(str(d.get("submission_state_from"))),
             b=escape_html(str(d.get("submission_state_to"))),
         )
-    if t == ChangeType.PROGRAM_STATE and d.get("policy_changed"):
+    if t == ChangeType.POLICY_CHANGED or (
+        t == ChangeType.PROGRAM_STATE and d.get("policy_changed")
+    ):
         return "📝 <b>Policy text changed</b>"
     if t == ChangeType.PROGRAM_ADDED:
         return "➕ <b>Now accessible to you</b>"

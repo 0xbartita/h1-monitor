@@ -91,8 +91,12 @@ Scope added · scope removed · scope changed (severity, eligibility, instructio
 eligibility · new public program launched · program paused or resumed · policy text edited ·
 private program gained or lost.
 
-Every type is individually switchable in `/config`. **Skip paused programs** is on by default —
-you still get the one "went paused" alert so you know why a program went quiet.
+Every one of those is its own switch in `/config` — including **Program paused or resumed**
+and **Policy text edited**, which you can turn on and off independently.
+
+**Hide other changes on paused programs** is on by default: a paused program isn't taking
+reports, so its scope churn is noise. You still get the one "paused" alert, so you always
+know why a program went quiet.
 
 Each alert is tagged 🌐 Public or 🔒 Private, and an asset that turns up *out of scope* is
 labelled as such, so you never chase a target that isn't one.

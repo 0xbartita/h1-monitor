@@ -119,7 +119,8 @@ CHANGE_LABELS: dict[ChangeType, str] = {
     ChangeType.BOUNTY_CHANGED: "💰 Bounty changed",
     ChangeType.PROGRAM_ADDED: "🔓 New access granted",
     ChangeType.PROGRAM_REMOVED: "🚫 Access removed",
-    ChangeType.PROGRAM_STATE: "⏸ Program status",
+    ChangeType.PROGRAM_STATE: "⏸ Program paused or resumed",
+    ChangeType.POLICY_CHANGED: "📝 Policy text edited",
 }
 
 
@@ -307,7 +308,7 @@ def status_text(
         f"🌐 Public check — every <b>{format_interval(prefs.poll_interval_minutes)}</b>\n"
         f"🔒 Private check — every <b>{format_interval(prefs.private_interval_minutes)}</b>\n"
         f"🔑 HackerOne API — {api}\n"
-        f"⏸ Skip paused programs — <b>{paused}</b>\n\n"
+        f"🙈 Hide changes on paused programs — <b>{paused}</b>\n\n"
         + version_line(version, tag, url)
     )
 
@@ -351,7 +352,8 @@ def build_config_keyboard(prefs: Preferences) -> InlineKeyboardMarkup:
     mark = "✅" if prefs.exclude_paused else "❌"
     rows.append(
         [InlineKeyboardButton(
-            f"{mark} ⏸ Ignore paused programs", callback_data="toggle:exclude_paused"
+            f"{mark} 🙈 Hide other changes on paused programs",
+            callback_data="toggle:exclude_paused",
         )]
     )
     return InlineKeyboardMarkup(rows)

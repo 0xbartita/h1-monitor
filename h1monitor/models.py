@@ -14,6 +14,7 @@ class ChangeType(str, Enum):
     PROGRAM_ADDED = "program_added"
     PROGRAM_REMOVED = "program_removed"
     PROGRAM_STATE = "program_state"
+    POLICY_CHANGED = "policy_changed"
 
 
 class Category(str, Enum):
@@ -21,6 +22,7 @@ class Category(str, Enum):
     SCOPE = "🎯 Scope Change"
     BOUNTY = "💰 Bounty"
     STATUS = "⏸ Program Status"
+    POLICY = "📝 Policy"
     NEW_ACCESS = "➕ New Access"
     REMOVED = "➖ Program Removed"
 
@@ -34,6 +36,7 @@ CATEGORY_FOR_TYPE: dict[ChangeType, Category] = {
     ChangeType.PROGRAM_ADDED: Category.NEW_ACCESS,
     ChangeType.PROGRAM_REMOVED: Category.REMOVED,
     ChangeType.PROGRAM_STATE: Category.STATUS,
+    ChangeType.POLICY_CHANGED: Category.POLICY,
 }
 
 _TYPE_ORDER = list(ChangeType)

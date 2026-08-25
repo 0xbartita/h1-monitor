@@ -14,6 +14,8 @@ def _passes_allow_deny(c: Change, prefs: Preferences) -> bool:
 
 
 def _passes_paused(c: Change, prefs: Preferences) -> bool:
+    """Drop the churn on a program nobody can report to, but never the pause
+    itself — that alert is what explains the silence that follows."""
     if not prefs.exclude_paused:
         return True
     if c.submission_state != "paused":
