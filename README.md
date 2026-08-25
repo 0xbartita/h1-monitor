@@ -1,4 +1,4 @@
-# h1monitor
+# h1-monitor
 
 **Watch HackerOne for scope changes and get them in Telegram, minutes after they land.**
 
@@ -24,6 +24,9 @@ Public programs need no API key. Add yours and it watches your private invites t
      Bounty eligible: no → yes
 ```
 
+<img width="1289" height="909" alt="image" src="https://github.com/user-attachments/assets/f4485fb0-0a20-4566-937f-39e4f55353e0" />
+
+
 ## What it watches
 
 | Source | Needs a key? | Covers |
@@ -42,6 +45,10 @@ Public refreshes every **30 min** by default, private every **2 h**. A full priv
 ```bash
 curl -fsSL https://raw.githubusercontent.com/0xbartita/h1-monitor/main/install.sh | bash
 ```
+
+<img width="1002" height="696" alt="image" src="https://github.com/user-attachments/assets/d71d1602-e7a3-472a-9d15-f878ff3449ec" />
+
+
 
 **Or Docker** — no Python needed:
 
@@ -81,6 +88,9 @@ eligibility · new public program launched · program paused or resumed · polic
 private program gained or lost.
 
 Every one is its own switch in `/config`, and changes apply straight away — no restart.
+
+<img width="705" height="684" alt="image" src="https://github.com/user-attachments/assets/a67f66f0-e623-456b-8e74-cafa95b8e56a" />
+
 
 Each alert is tagged 🌐 Public or 🔒 Private, and an asset that turns up *out of scope* is
 labelled as such, so you never chase a target that isn't one.
