@@ -91,14 +91,12 @@ Installed with the one-liner — everything lives in `~/h1-monitor`:
 ```bash
 systemctl --user status h1monitor     # is it running?
 journalctl --user -u h1monitor -f     # watch it work
-systemctl --user restart h1monitor    # only if you change your bot token
 ```
 
 Docker (state lives in the `h1monitor` volume):
 
 ```bash
 docker logs -f h1monitor
-docker restart h1monitor
 ```
 
 ## Update to a new version
