@@ -167,8 +167,8 @@ Last step — open Telegram and DM your bot:
   2. /setup <username> <token>    connect HackerOne, for your private programs
                                   (both are on https://hackerone.com/settings/api_token/edit)
 
-Public-program alerts need no key. The first check is a silent baseline; real
-change alerts start from the next one.
+Public-program alerts need no key. The first check stays quiet while it records
+what is already there; alerts start from the second one.
 
 Manage it:
   ${manage}

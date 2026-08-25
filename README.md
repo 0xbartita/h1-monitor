@@ -36,14 +36,14 @@ Public refreshes every **30 min** by default, private every **2 h**. A full priv
 
 ## Install
 
-**One command** — installs it, asks for your bot token, and starts it running 24/7
+**Install script** — installs it, asks for your bot token, and starts it running 24/7
 (needs **Python 3.11+** and **git**):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/0xbartita/h1-monitor/main/install.sh | bash
 ```
 
-**Or Docker** — no Python, no clone:
+**Or Docker** — no Python needed:
 
 ```bash
 docker run -d --name h1monitor --restart unless-stopped \
@@ -68,8 +68,9 @@ No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
 Get your API credentials from [hackerone.com/settings/api_token](https://hackerone.com/settings/api_token/edit).
 Skip `/setup` entirely if you only care about public programs.
 
-The first check is a **silent baseline** — otherwise you'd get thousands of alerts for
-programs that were already there. Real alerts start from the next check. The private sweep
+The first check stays quiet — it just records what's already there, so you don't get
+thousands of alerts for programs that existed before you installed. Alerts start from
+the second check. The private sweep
 begins the moment you send `/setup` — no restart, no waiting for the next tick — and fills in
 gradually from there, so `/status` shows the count climbing for ~10–15 min.
 
@@ -86,14 +87,14 @@ labelled as such, so you never chase a target that isn't one.
 
 ## Manage it
 
-Installed with the one-liner — everything lives in `~/h1-monitor`:
+If you used the install script — everything lives in `~/h1-monitor`:
 
 ```bash
 systemctl --user status h1monitor     # is it running?
 journalctl --user -u h1monitor -f     # watch it work
 ```
 
-Docker (state lives in the `h1monitor` volume):
+If you used Docker:
 
 ```bash
 docker logs -f h1monitor
@@ -109,16 +110,15 @@ in [@h1_monitor](https://t.me/h1_monitor). The steps are on the release page.
 Stops the checks; everything is kept, and starting it again picks up where it left off.
 
 ```bash
-systemctl --user stop h1monitor       # one-liner install
+systemctl --user stop h1monitor       # install script
 docker stop h1monitor                 # Docker
 ```
 
 ## Uninstall
 
-**This deletes your bot token, your HackerOne key, and the snapshot history** — a fresh install
-starts from a new silent baseline.
+**This deletes your bot token, your HackerOne key, and everything it has tracked.**
 
-One-liner install:
+If you used the install script:
 
 ```bash
 systemctl --user disable --now h1monitor
@@ -127,7 +127,7 @@ systemctl --user daemon-reload
 rm -rf ~/h1-monitor
 ```
 
-Docker:
+If you used Docker:
 
 ```bash
 docker rm -f h1monitor
