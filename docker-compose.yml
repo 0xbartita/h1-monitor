@@ -1,0 +1,38 @@
+# Run h1monitor 24/7 from the prebuilt image — no Python, no clone.
+#
+#   1.  echo 'TELEGRAM_BOT_TOKEN=123456789:AA...' > .env
+#   2.  docker compose up -d
+#
+# Then DM your bot /start and /setup.
+#
+# Staying up to date is automatic: the bundled Watchtower service checks once a
+# day for a newly published image and restarts h1monitor on its own — so every
+# release reaches you with nothing to run. Prefer to update by hand? Delete the
+# `watchtower` service below and run:  docker compose pull && docker compose up -d
+services:
+  h1monitor:
+    image: ghcr.io/0xbartita/h1-monitor:latest
+    container_name: h1monitor
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?put TELEGRAM_BOT_TOKEN in a .env file next to this compose file}
+    volumes:
+      - h1monitor-data:/data
+    labels:
+      # Opt this one container in to Watchtower's auto-updates.
+      - com.centurylinklabs.watchtower.enable=true
+
+  # Auto-updater. `--label-enable` means it watches ONLY the labelled container
+  # above, so it never touches anything else running on your host. When a new
+  # h1monitor image is published it pulls it, recreates the container, and
+  # cleans up the old image. Remove this whole service to update manually.
+  watchtower:
+    image: containrrr/watchtower
+    container_name: h1monitor-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --interval 86400
+
+volumes:
+  h1monitor-data:
