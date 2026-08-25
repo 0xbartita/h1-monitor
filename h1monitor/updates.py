@@ -126,18 +126,6 @@ def update_notice(current: str, latest: str, url: str) -> str:
     )
 
 
-def version_line(current: str, latest: str | None, url: str | None) -> str:
-    """The /status footer: the running version, and a tappable release link when
-    there is genuinely something newer."""
-    if latest and url and is_newer(latest, current):
-        return (
-            f"🏷 Version <b>{_display(current)}</b> — "
-            f'<a href="{escape_html(url)}">v{_display(latest)} is out</a>\n'
-            f"📖 Upgrade steps are in the release notes · 📣 {channel_link()}"
-        )
-    return f"🏷 Version <b>{_display(current)}</b>"
-
-
 _CHECK_EVERY = 60 * 60
 
 

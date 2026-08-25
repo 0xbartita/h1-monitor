@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from h1monitor.updates import (
-    UpdateClient, is_newer, update_notice, version_line, channel_link,
+    UpdateClient, is_newer, update_notice, channel_link,
 )
 
 
@@ -96,22 +96,6 @@ def test_notice_embeds_no_install_commands():
 
 def test_channel_link_is_a_real_anchor():
     assert channel_link() == '<a href="https://t.me/h1_monitor">@h1_monitor</a>'
-
-
-# --- the /status line -------------------------------------------------------
-
-def test_status_shows_the_version_and_an_update_when_there_is_one():
-    line = version_line("0.1.0", "v0.2.0", "https://example.com/rel")
-    assert "0.1.0" in line
-    assert "0.2.0" in line
-    assert 'href="https://example.com/rel"' in line
-
-
-def test_status_shows_only_the_version_when_up_to_date():
-    line = version_line("0.2.0", "v0.2.0", "https://example.com/rel")
-    assert "0.2.0" in line
-    assert "href" not in line              # nothing to click, nothing to do
-    assert "update" not in line.lower()
 
 
 # --- remembering what we've already announced -------------------------------

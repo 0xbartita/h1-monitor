@@ -13,7 +13,7 @@ from h1monitor.config import Settings
 from h1monitor.models import Preferences, ChangeType
 from h1monitor import __version__
 from h1monitor.notifier import escape_html
-from h1monitor.updates import is_newer, version_line, channel_link
+from h1monitor.updates import is_newer, channel_link
 
 log = logging.getLogger("h1monitor")
 
