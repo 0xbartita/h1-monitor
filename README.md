@@ -107,26 +107,7 @@ docker restart h1monitor
 ## Update to a new version
 
 The bot tells you on `/status` when a newer version is out, and every release is announced
-in [@h1_monitor](https://t.me/h1_monitor). The release page has the exact steps. Usually
-it's just this.
-
-**One-liner install** — run the very same install command again. It fetches the new code
-and restarts the bot. Your settings, your HackerOne key and your history all stay:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/0xbartita/h1-monitor/main/install.sh | bash
-```
-
-**Docker** — download the new image, throw away the old container, start a new one from it.
-Your data is in the `h1monitor` volume, not in the container, so nothing is lost:
-
-```bash
-docker pull ghcr.io/0xbartita/h1-monitor
-docker rm -f h1monitor
-docker run -d --name h1monitor --restart unless-stopped \
-  -e TELEGRAM_BOT_TOKEN=<your-token> -v h1monitor:/data \
-  ghcr.io/0xbartita/h1-monitor
-```
+in [@h1_monitor](https://t.me/h1_monitor). The steps are on the release page.
 
 ## Stop it
 
@@ -158,7 +139,3 @@ docker rm -f h1monitor
 docker volume rm h1monitor
 docker rmi ghcr.io/0xbartita/h1-monitor
 ```
-
-Uninstalling removes the bot from your computer, but the bot still exists on Telegram and
-its token still works. To delete it for good, message
-[@BotFather](https://t.me/BotFather) and send `/deletebot`.
