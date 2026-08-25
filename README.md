@@ -144,3 +144,7 @@ docker rm -f h1monitor
 docker volume rm h1monitor
 docker rmi ghcr.io/0xbartita/h1-monitor
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
