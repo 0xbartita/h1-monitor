@@ -100,5 +100,40 @@ docker restart h1monitor
 ```
 
 **Updating.** Re-run the install one-liner — it pulls and restarts in place. On Docker,
-`docker pull ghcr.io/0xbartita/h1-monitor` then recreate the container. Compose users with the
-bundled Watchtower need do nothing.
+`docker pull ghcr.io/0xbartita/h1-monitor` then recreate the container.
+
+## Stop it
+
+Stops the checks; everything is kept, and starting it again picks up where it left off.
+
+```bash
+systemctl --user stop h1monitor       # one-liner install
+docker stop h1monitor                 # Docker
+```
+
+## Uninstall
+
+**This deletes your bot token, your HackerOne key, and the snapshot history** — a fresh install
+starts from a new silent baseline.
+
+One-liner install:
+
+```bash
+systemctl --user disable --now h1monitor
+rm -f ~/.config/systemd/user/h1monitor.service
+systemctl --user daemon-reload
+rm -rf ~/h1-monitor
+```
+
+Docker:
+
+```bash
+docker rm -f h1monitor
+docker volume rm h1monitor
+docker rmi ghcr.io/0xbartita/h1-monitor
+```
+
+Using compose, `docker compose down -v` does all three (the `-v` is what drops the state).
+
+Done with the bot itself? Send `/deletebot` to [@BotFather](https://t.me/BotFather) — otherwise
+the token stays live.
