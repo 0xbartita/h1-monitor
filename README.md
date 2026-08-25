@@ -17,7 +17,7 @@ entirely in-chat.
 (needs **Python 3.11+** and **git**):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/0xbartita/h1-monitor/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/0xbartita/h1-monitor/main/install.sh | bash
 ```
 
 **Or Docker** — no Python, no clone:

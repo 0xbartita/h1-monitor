@@ -2,7 +2,7 @@
 #
 # h1monitor one-shot installer.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/0xbartita/h1-monitor/main/install.sh)
+#   curl -fsSL https://raw.githubusercontent.com/0xbartita/h1-monitor/main/install.sh | bash
 #
 # or, after cloning the repo:
 #
