@@ -63,7 +63,23 @@ if [ -f "./pyproject.toml" ] && grep -q 'name = "h1monitor"' ./pyproject.toml 2>
 elif [ -f "$INSTALL_DIR/pyproject.toml" ]; then
     OLD_VERSION="$(read_version "$INSTALL_DIR")"
     info "Updating existing install at $INSTALL_DIR ..."
-    git -C "$INSTALL_DIR" pull --ff-only >/dev/null 2>&1 || warn "Couldn't update; using the code already there."
+    if ! git -C "$INSTALL_DIR" pull --ff-only >/dev/null 2>&1; then
+        # A fast-forward can be refused for reasons that have nothing to do with
+        # the network: the published history was rewritten, or the repo was
+        # recreated. Warning and carrying on then leaves someone running old code
+        # while the installer reports success -- the exact failure this is here to
+        # prevent. An install directory holds no work worth keeping (.env, the
+        # database and the key are all git-ignored, so a reset cannot touch them),
+        # so take the published code.
+        if git -C "$INSTALL_DIR" fetch -q --force --tags origin 2>/dev/null \
+           && git -C "$INSTALL_DIR" reset -q --hard origin/main 2>/dev/null; then
+            info "Local copy had diverged from the published code — reset to it."
+        else
+            warn "Couldn't fetch the latest code. Continuing with what is already"
+            warn "here, which may be an older version. Check your connection, or"
+            warn "reinstall from scratch: rm -rf $INSTALL_DIR"
+        fi
+    fi
 else
     info "Cloning into $INSTALL_DIR ..."
     git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
