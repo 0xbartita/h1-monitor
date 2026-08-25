@@ -19,7 +19,13 @@ permissions:
   packages: write
 
 jobs:
+  # Gate the image on the test suite. A broken commit should not become
+  # something users can pull.
+  test:
+    uses: ./.github/workflows/tests.yml
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
