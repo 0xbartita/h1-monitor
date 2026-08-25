@@ -7,7 +7,7 @@ import signal
 import sys
 from collections.abc import Callable
 
-from telegram.error import NetworkError
+from telegram.error import NetworkError, InvalidToken
 
 from h1monitor.config import (
     load_settings, Settings, ConfigError, load_dotenv, upsert_env_var,
@@ -226,6 +226,18 @@ def run() -> None:
     except ConfigError as e:
         print(f"Configuration error: {e}\nSet it in your environment or .env file.",
               file=sys.stderr)
+        raise SystemExit(1)
+    except InvalidToken:
+        # A mistyped or revoked token is the likeliest first-run mistake. The
+        # library's answer is two chained tracebacks ending in "Unauthorized",
+        # which tells someone setting this up for the first time nothing.
+        print(
+            "Telegram rejected your bot token.\n"
+            "Check TELEGRAM_BOT_TOKEN in your .env — it should look like\n"
+            "  123456789:AAExampleExampleExampleExampleExample\n"
+            "Message @BotFather on Telegram and send /mybots to see it again.",
+            file=sys.stderr,
+        )
         raise SystemExit(1)
     except KeyboardInterrupt:
         pass

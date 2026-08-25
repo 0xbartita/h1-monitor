@@ -1,3 +1,4 @@
+import pytest
 from cryptography.fernet import Fernet
 
 from h1monitor.config import Settings, load_dotenv
@@ -167,3 +168,22 @@ def test_print_claim_code_reports_a_missing_token_cleanly(tmp_path, capsys):
     from h1monitor.main import print_claim_code
     assert print_claim_code(str(tmp_path)) == 1
     assert "TELEGRAM_BOT_TOKEN" in capsys.readouterr().err
+
+
+def test_a_rejected_bot_token_explains_itself(monkeypatch, capsys):
+    # The likeliest first-run mistake is a mistyped token. PTB answers with two
+    # chained tracebacks ending in "Unauthorized", which helps nobody.
+    from telegram.error import InvalidToken
+    import h1monitor.main as m
+
+    async def boom():
+        raise InvalidToken("The token `123:ABC` was rejected by the server.")
+
+    monkeypatch.setattr(m, "main_async", boom)
+    with pytest.raises(SystemExit) as e:
+        m.run()
+    assert e.value.code == 1
+    err = capsys.readouterr().err
+    assert "rejected your bot token" in err
+    assert "@BotFather" in err
+    assert "Traceback" not in err
