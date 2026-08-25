@@ -236,3 +236,13 @@ def test_start_says_nothing_about_updates_when_current():
     txt = start_text(True, version="0.2.0", latest=("v0.2.0", "https://example.com/rel"))
     assert "0.2.0" in txt
     assert "href=\"https://example.com/rel\"" not in txt
+
+
+def test_start_points_people_at_the_updates_channel():
+    txt = start_text(True)
+    assert "h1_monitor" in txt
+    assert 'href="https://t.me/h1_monitor"' in txt
+
+
+def test_help_points_people_at_the_updates_channel():
+    assert 'href="https://t.me/h1_monitor"' in help_text()

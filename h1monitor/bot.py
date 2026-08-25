@@ -12,6 +12,7 @@ from h1monitor import __version__
 from h1monitor.notifier import escape_html
 from h1monitor.updates import (
     is_newer, version_line, upgrade_html, detect_install,
+    UPDATES_CHANNEL, UPDATES_CHANNEL_HANDLE,
 )
 
 # Registered with Telegram so typing "/" pops up an autocomplete menu.
@@ -169,8 +170,12 @@ def start_text(has_creds: bool, version: str = __version__, latest=None) -> str:
         "🔔 Alerts: <b>on</b> — fine-tune them with /config\n\n"
         + _update_line(version, latest)
         + "Tap the menu (<code>/</code>) to see everything I can do.\n\n"
-        f"🏷 v{version}"
+        f"🏷 v{version} · 📣 {channel_link()} for release news"
     )
+
+
+def channel_link() -> str:
+    return f'<a href="{UPDATES_CHANNEL}">{UPDATES_CHANNEL_HANDLE}</a>'
 
 
 def _update_line(version: str, latest) -> str:
@@ -257,7 +262,8 @@ def help_text() -> str:
         "/status — what's watched, check intervals &amp; settings\n"
         "/help — show this list\n\n"
         "Everything — public <i>and</i> private, programs <i>and</i> scopes — "
-        "is monitored automatically."
+        "is monitored automatically.\n\n"
+        f"📣 Join {channel_link()} to hear about new versions."
     )
 
 

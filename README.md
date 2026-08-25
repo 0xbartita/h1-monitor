@@ -52,6 +52,8 @@ docker run -d --name h1monitor --restart unless-stopped \
 
 No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
 
+📣 Join [@h1_monitor](https://t.me/h1_monitor) to hear when a new version ships.
+
 ## Then, in Telegram
 
 | Command | What it does |

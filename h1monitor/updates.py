@@ -18,6 +18,11 @@ DOCKER = "docker"
 SOURCE = "source"
 
 DEFAULT_REPO = "0xbartita/h1-monitor"
+# Announcement channel. The hourly check already tells each copy about a new
+# release; this is for people who'd rather hear it pushed than wait for their
+# own instance to notice — and it still reaches them if their bot is stopped.
+UPDATES_CHANNEL = "https://t.me/h1_monitor"
+UPDATES_CHANNEL_HANDLE = "@h1_monitor"
 _TIMEOUT = 10.0
 _VERSION = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)")
 
