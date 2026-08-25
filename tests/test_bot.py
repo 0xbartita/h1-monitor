@@ -211,3 +211,28 @@ def test_interval_change_wakes_the_loop_it_affects(tmp_path):
     rung.clear()
     apply_interval_step(st, "intv:public:+", wake=rung.append)
     assert rung == ["public"]
+
+
+def test_status_shows_the_running_version(tmp_path):
+    txt = status_text(Preferences.defaults(), True, 1, 1, 1, 1, version="0.1.0")
+    assert "0.1.0" in txt
+
+
+def test_status_offers_a_tappable_upgrade_when_one_exists(tmp_path):
+    txt = status_text(
+        Preferences.defaults(), True, 1, 1, 1, 1,
+        version="0.1.0", latest=("v0.2.0", "https://example.com/rel"),
+    )
+    assert 'href="https://example.com/rel"' in txt
+    assert "0.2.0" in txt
+
+
+def test_start_mentions_an_available_update():
+    txt = start_text(True, version="0.1.0", latest=("v0.2.0", "https://example.com/rel"))
+    assert "0.2.0" in txt and "href" in txt
+
+
+def test_start_says_nothing_about_updates_when_current():
+    txt = start_text(True, version="0.2.0", latest=("v0.2.0", "https://example.com/rel"))
+    assert "0.2.0" in txt
+    assert "href=\"https://example.com/rel\"" not in txt

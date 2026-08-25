@@ -8,6 +8,11 @@ from telegram.ext import (
 from h1monitor.store import Store
 from h1monitor.config import Settings
 from h1monitor.models import Preferences, ChangeType
+from h1monitor import __version__
+from h1monitor.notifier import escape_html
+from h1monitor.updates import (
+    is_newer, version_line, upgrade_html, detect_install,
+)
 
 # Registered with Telegram so typing "/" pops up an autocomplete menu.
 BOT_COMMANDS = [
@@ -150,7 +155,7 @@ def private_recommendation_line(nprograms: int, nscopes: int) -> str:
 
 # --- message text (HTML, pure functions so they're testable) ---
 
-def start_text(has_creds: bool) -> str:
+def start_text(has_creds: bool, version: str = __version__, latest=None) -> str:
     if has_creds:
         api = "✅ connected"
         setup_line = "🔗 Use /setup anytime to update your HackerOne key."
@@ -162,7 +167,24 @@ def start_text(has_creds: bool) -> str:
         f"🔑 HackerOne API: {api}\n"
         f"{setup_line}\n"
         "🔔 Alerts: <b>on</b> — fine-tune them with /config\n\n"
-        "Tap the menu (<code>/</code>) to see everything I can do."
+        + _update_line(version, latest)
+        + "Tap the menu (<code>/</code>) to see everything I can do.\n\n"
+        f"🏷 v{version}"
+    )
+
+
+def _update_line(version: str, latest) -> str:
+    """A single nudge when a newer release exists, and nothing at all when it
+    doesn't — a version banner on every /start would just be noise."""
+    if not latest:
+        return ""
+    tag, url = latest
+    if not is_newer(tag, version):
+        return ""
+    return (
+        f'🚀 <b>v{tag.lstrip("vV")} is available</b> — '
+        f'<a href="{escape_html(url)}">what changed</a>. '
+        "Send /status for how to upgrade.\n\n"
     )
 
 
@@ -205,9 +227,14 @@ def status_text(
     npriv: int,
     pub_sc: int,
     priv_sc: int,
+    version: str = __version__,
+    latest=None,
 ) -> str:
     api = "✅ connected" if has_creds else "❌ not set"
     paused = "on" if prefs.exclude_paused else "off"
+    tag, url = latest if latest else (None, None)
+    # Only spell out the upgrade steps when there is something to upgrade to.
+    upgrade_due = bool(tag and is_newer(tag, version))
     return (
         "📊 <b>Status</b>\n\n"
         f"🌐 Public — <b>{npub:,}</b> programs · <b>{pub_sc:,}</b> scopes\n"
@@ -215,7 +242,9 @@ def status_text(
         f"🌐 Public check — every <b>{format_interval(prefs.poll_interval_minutes)}</b>\n"
         f"🔒 Private check — every <b>{format_interval(prefs.private_interval_minutes)}</b>\n"
         f"🔑 HackerOne API — {api}\n"
-        f"⏸ Skip paused programs — <b>{paused}</b>"
+        f"⏸ Skip paused programs — <b>{paused}</b>\n\n"
+        + version_line(version, tag, url, detect_install())
+        + (f"\n\n{upgrade_html(detect_install())}" if upgrade_due else "")
     )
 
 
@@ -296,7 +325,10 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
         if not guard(update):
             return
         has = store.get_h1_credentials() is not None
-        await update.message.reply_text(start_text(has), parse_mode="HTML")
+        await update.message.reply_text(
+            start_text(has, latest=store.get_known_release()),
+            parse_mode="HTML", disable_web_page_preview=True,
+        )
 
     async def setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not guard(update):
@@ -365,7 +397,11 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
         pub_sc = sum(len(p.scopes) for p in pub.programs.values()) if pub else 0
         priv_sc = sum(len(p.scopes) for p in priv.programs.values()) if priv else 0
         await update.message.reply_text(
-            status_text(prefs, has, npub, npriv, pub_sc, priv_sc), parse_mode="HTML"
+            status_text(
+                prefs, has, npub, npriv, pub_sc, priv_sc,
+                latest=store.get_known_release(),
+            ),
+            parse_mode="HTML", disable_web_page_preview=True,
         )
 
     async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

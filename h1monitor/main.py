@@ -19,6 +19,7 @@ from h1monitor.h1_client import H1Client
 from h1monitor.directory_client import DirectoryClient
 from h1monitor.poller import private_poll_loop
 from h1monitor.directory_poller import public_poll_loop
+from h1monitor.updates import UpdateClient, update_check_loop
 
 log = logging.getLogger("h1monitor")
 
@@ -120,7 +121,11 @@ async def main_async(base_dir: str = ".") -> None:
     # One waker per loop, so an in-chat change (/setup saving a key, /config
     # shortening an interval) interrupts that loop's sleep instead of waiting
     # it out. Handlers run on this same event loop, so set() is enough.
-    wakers = {"public": asyncio.Event(), "private": asyncio.Event()}
+    wakers = {
+        "public": asyncio.Event(),
+        "private": asyncio.Event(),
+        "updates": asyncio.Event(),
+    }
 
     def wake(which: str) -> None:
         waker = wakers.get(which)
@@ -160,6 +165,9 @@ async def main_async(base_dir: str = ".") -> None:
         await asyncio.gather(
             public_poll_loop(store, dir_provider, notifier, stop, wakers["public"]),
             private_poll_loop(store, h1_provider, notifier, stop, wakers["private"]),
+            update_check_loop(
+                store, UpdateClient, notifier, stop, wakers["updates"]
+            ),
         )
     finally:
         await app.updater.stop()

@@ -166,6 +166,20 @@ class Store:
         raw = self._get(f"last_poll:{source}")
         return float(raw) if raw else None
 
+    # --- released version we last saw upstream ---
+    def get_known_release(self) -> tuple[str, str] | None:
+        raw = self._get("known_release")
+        if not raw:
+            return None
+        try:
+            d = json.loads(raw)
+            return (d["tag"], d["url"])
+        except Exception:  # noqa: BLE001 — a corrupt row just means "unknown"
+            return None
+
+    def set_known_release(self, tag: str, url: str) -> None:
+        self._set("known_release", json.dumps({"tag": tag, "url": url}))
+
     # --- alert dedup ---
     def mark_alert_sent(self, key: str) -> bool:
         with self._lock:

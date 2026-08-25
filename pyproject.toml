@@ -1,6 +1,6 @@
 [project]
 name = "h1monitor"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Self-hosted HackerOne program change monitor with Telegram alerts"
 requires-python = ">=3.11"
 dependencies = [
@@ -18,6 +18,10 @@ h1monitor = "h1monitor.main:run"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.setuptools.dynamic]
+# Single source of truth: bump h1monitor/__init__.py at release time.
+version = {attr = "h1monitor.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["h1monitor*"]
