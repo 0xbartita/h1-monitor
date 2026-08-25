@@ -19,7 +19,10 @@ DEFAULT_REPO = "0xbartita/h1-monitor"
 UPDATES_CHANNEL = "https://t.me/h1_monitor"
 UPDATES_CHANNEL_HANDLE = "@h1_monitor"
 _TIMEOUT = 10.0
-_VERSION = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)")
+# Two-part tags count: a 1.0 release is a real thing to cut, and treating it
+# as unparseable would mean "no update available" forever, silently, for
+# everyone running an older build.
+_VERSION = re.compile(r"^v?(\d+)\.(\d+)(?:\.(\d+))?")
 
 
 def repo_slug() -> str:
@@ -30,7 +33,10 @@ def _parse(tag) -> tuple[int, int, int] | None:
     if not tag:
         return None
     m = _VERSION.match(str(tag).strip())
-    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+    if not m:
+        return None
+    # "1.0" is 1.0.0, so it sorts against three-part tags correctly.
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0))
 
 
 def is_newer(latest, current) -> bool:

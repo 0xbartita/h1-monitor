@@ -195,3 +195,25 @@ async def test_update_loop_survives_a_dead_github(tmp_path):
     await asyncio.sleep(0.1)
     stop.set()
     await asyncio.wait_for(task, timeout=3)   # must not have raised
+
+
+# --- two-part version tags (1.0, 2.0) ---------------------------------------
+
+def test_a_two_part_tag_is_a_real_version():
+    # Tagging v1.0 must not read as "unparseable", which is silently treated as
+    # "no update available" — forever, for everyone on an older build.
+    assert is_newer("v1.0", "0.9.0") is True
+    assert is_newer("v2.0", "1.0") is True
+    assert is_newer("v1.0", "1.0") is False
+
+
+def test_two_and_three_part_tags_compare_against_each_other():
+    assert is_newer("v1.0", "0.2.0") is True      # 1.0 beats 0.2.0
+    assert is_newer("v1.0.1", "1.0") is True      # a patch on top of 1.0
+    assert is_newer("v1.0", "1.0.1") is False     # and not the other way
+    assert is_newer("0.10.0", "0.9.0") is True    # still numeric, not text
+
+
+def test_still_refuses_things_that_are_not_versions():
+    for junk in ("nightly", "", "v", "latest", None):
+        assert is_newer(junk, "0.1.0") is False
