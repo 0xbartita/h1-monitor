@@ -354,3 +354,18 @@ def test_setup_confirmation_sets_expectations():
     assert "10-15" in txt
     # Must match what /status actually says, or the two contradict each other.
     assert "scanning now" in txt
+
+
+def test_status_says_scanning_while_the_public_baseline_is_missing():
+    # Upgrading drops the public baseline on purpose, which reopens the same
+    # window: 0 programs, no explanation, looks broken.
+    txt = status_text(Preferences.defaults(), True, 0, 12, 0, 900,
+                      public_ready=False)
+    assert "Public — <b>scanning now</b>" in txt
+    assert "12" in txt          # private is unaffected
+
+
+def test_status_shows_public_counts_once_the_sweep_lands():
+    txt = status_text(Preferences.defaults(), True, 450, 12, 41214, 900)
+    assert "scanning now" not in txt
+    assert "450" in txt and "41,214" in txt
