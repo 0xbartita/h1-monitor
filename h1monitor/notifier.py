@@ -134,7 +134,7 @@ def _launch_is_recent(started_at: str | None, today: date | None = None) -> bool
 def _format_new_program(c: Change) -> str:
     dp = c.directory
     kind = (
-        "bug bounty program"
+        "Bug bounty program"
         if (dp and dp.offers_bounties)
         else "vulnerability disclosure program"
     )
@@ -144,21 +144,17 @@ def _format_new_program(c: Change) -> str:
 
     if _launch_is_recent(started):
         return (
-            f"🆕 <b>New program: {name}</b>{_badge_suffix(c)}\n"
-            f"{name} launched a {kind} on {escape_html(started[:10])}, "
-            f"and it is open for reports.\n"
+            f"🆕 <b>New Program: {name}</b>{_badge_suffix(c)}\n"
+            f"{name} launched on {escape_html(started[:10])} as a {kind}.\n"
             f"{_link(url)}"
         )
-    # Not a fresh launch — an established program is open in the directory again.
-    # The directory only lists programs that are open, so a first listing and a
-    # return from a pause look identical from here. Say that, rather than calling
-    # an old program "new".
+    # Not a fresh launch — an established program just (re)appeared in the open
+    # directory. Say "Now listed" rather than calling an old program "new".
     if started:
-        body = (f"{name} is open for reports in the public directory — a {kind} "
-                f"that first launched on {escape_html(started[:10])}, so it is "
-                f"either newly listed or back after a pause.")
+        body = (f"{name} is now listed in the public directory — "
+                f"a {kind} that launched on {escape_html(started[:10])}.")
     else:
-        body = f"{name} is open for reports in the public directory as a {kind}."
+        body = f"{name} is now listed in the public directory as a {kind}."
     return (
         f"🆕 <b>Now listed: {name}</b>{_badge_suffix(c)}\n"
         f"{body}\n"
@@ -167,19 +163,6 @@ def _format_new_program(c: Change) -> str:
 
 
 _TRANSITION = "<code>{a}</code> → <code>{b}</code>"
-
-
-def _state_word(v) -> str:
-    """A submission_state for display. A missing value reads as 'unknown'
-    rather than leaking Python's 'None' into an alert."""
-    return str(v) if v else "unknown"
-
-
-def _detail(text: str) -> str:
-    """An explanatory sentence, indented under the bold label it belongs to.
-    Program-level alerts each get one: a bare "State open → paused" reports what
-    the API returned, not what it means for the person reading it."""
-    return f"\n     {text}"
 
 
 def _scope_key_html(key: str) -> str:
@@ -223,45 +206,20 @@ def _change_line(c: Change) -> str:
         return head + ("\n" + "\n".join(rows) if rows else "")
 
     if t == ChangeType.BOUNTY_CHANGED and "offers_bounties_to" in d:
-        if d.get("offers_bounties_to"):
-            return "💰 <b>Bounties switched on</b>" + _detail(
-                "Valid reports here can now earn money, not just reputation."
-            )
-        return "💸 <b>Bounties switched off</b>" + _detail(
-            "Valid reports here now earn reputation only."
-        )
+        a = "on" if d.get("offers_bounties_from") else "off"
+        b = "on" if d.get("offers_bounties_to") else "off"
+        return "💰 <b>Bounties</b> " + _TRANSITION.format(a=a, b=b)
     if t == ChangeType.PROGRAM_STATE and "submission_state_to" in d:
-        was = _state_word(d.get("submission_state_from"))
-        now = _state_word(d.get("submission_state_to"))
-        move = _TRANSITION.format(a=escape_html(was), b=escape_html(now))
-        if d.get("became_paused"):
-            return "⏸ <b>Program paused</b>" + _detail(
-                f"It has stopped taking new reports ({move})."
-            )
-        if was == "paused":
-            return "▶️ <b>Program resumed</b>" + _detail(
-                f"It is accepting reports again ({move})."
-            )
-        return "🔄 <b>Program state changed</b>" + _detail(f"{move}.")
+        return "⏸ <b>State</b> " + _TRANSITION.format(
+            a=escape_html(str(d.get("submission_state_from"))),
+            b=escape_html(str(d.get("submission_state_to"))),
+        )
     if t == ChangeType.PROGRAM_STATE and d.get("policy_changed"):
-        return "📝 <b>Policy updated</b>" + _detail(
-            "The program rewrote its rules — worth re-reading before you report."
-        )
+        return "📝 <b>Policy text changed</b>"
     if t == ChangeType.PROGRAM_ADDED:
-        return "➕ <b>You now have access</b>" + _detail(
-            "This program is visible to your account for the first time."
-        )
+        return "➕ <b>Now accessible to you</b>"
     if t == ChangeType.PROGRAM_REMOVED:
-        # The public directory only lists open programs, so a program leaving it
-        # is not proof it shut down — a pause looks identical from here. Say what
-        # is certain (it is gone from the listing) and no more.
-        if c.source == "public":
-            return "➖ <b>Delisted from the public directory</b>" + _detail(
-                "It was paused, went private, or closed. It may come back."
-            )
-        return "➖ <b>You lost access</b>" + _detail(
-            "This program is no longer visible to your account."
-        )
+        return "➖ <b>No longer accessible</b>"
     return f"• {escape_html(c.summary)}"
 
 
