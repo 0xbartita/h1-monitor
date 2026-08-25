@@ -192,3 +192,38 @@ def test_a_rejected_bot_token_explains_itself(monkeypatch, capsys):
     assert "rejected your bot token" in err
     assert "@BotFather" in err
     assert "Traceback" not in err
+
+
+# --- upgrading must not flood the chat --------------------------------------
+
+def test_upgrading_from_a_capped_snapshot_resets_the_public_baseline(tmp_path):
+    # 0.1.0 stored at most 200 scopes per public program. Diffing that against a
+    # complete list would report every asset past 200 as newly added.
+    from h1monitor.main import migrate_snapshots, SNAPSHOT_FORMAT
+    from h1monitor.store import Store
+    from h1monitor.models import Snapshot, Program
+    from cryptography.fernet import Fernet
+
+    st = Store(str(tmp_path / "m.db"), Fernet.generate_key())
+    st.save_snapshot("public", Snapshot({"big": Program(
+        "big", "Big", "open", True, None, None, {}, "d")}))
+    st.save_snapshot("private", Snapshot({"acme": Program(
+        "acme", "Acme", "open", True, None, None, {}, "d")}))
+
+    assert migrate_snapshots(st) is True
+    assert st.has_baseline("public") is False      # re-taken quietly next cycle
+    assert st.has_baseline("private") is True      # private always paginated
+    assert st.get_snapshot_format() == SNAPSHOT_FORMAT
+
+
+def test_migration_runs_once_and_then_leaves_the_baseline_alone(tmp_path):
+    from h1monitor.main import migrate_snapshots
+    from h1monitor.store import Store
+    from h1monitor.models import Snapshot
+    from cryptography.fernet import Fernet
+
+    st = Store(str(tmp_path / "m.db"), Fernet.generate_key())
+    assert migrate_snapshots(st) is True
+    st.save_snapshot("public", Snapshot({}))
+    assert migrate_snapshots(st) is False          # no second reset
+    assert st.has_baseline("public") is True

@@ -186,6 +186,17 @@ class Store:
     def set_known_release(self, tag: str, url: str) -> None:
         self._set("known_release", json.dumps({"tag": tag, "url": url}))
 
+    # --- which layout the stored snapshots were written in ---
+    def get_snapshot_format(self) -> int:
+        raw = self._get("snapshot_format")
+        try:
+            return int(raw) if raw else 0
+        except ValueError:
+            return 0
+
+    def set_snapshot_format(self, n: int) -> None:
+        self._set("snapshot_format", str(n))
+
     # --- alert dedup ---
     def mark_alert_sent(self, key: str) -> bool:
         with self._lock:

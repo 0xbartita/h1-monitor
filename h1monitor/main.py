@@ -84,6 +84,28 @@ def reset_owner(base_dir: str = ".") -> int:
         store.close()
 
 
+# Bumped whenever a stored snapshot means something different than it used to,
+# so an upgrade can tell "nothing changed" from "we now see more than we did".
+# 1 = public programs held at most 200 scopes each.
+# 2 = public programs hold every scope.
+SNAPSHOT_FORMAT = 2
+
+
+def migrate_snapshots(store: Store) -> bool:
+    """Throw away a baseline an older version built to different rules.
+
+    Until 0.2.0 the public sweep stopped at 200 scopes per program. Diffing that
+    against a complete list would announce tens of thousands of assets as newly
+    added on the first cycle after upgrading — a flood that Telegram would rate
+    limit away, burying anything real. Re-take the baseline quietly instead: the
+    next cycle stores what is there and says nothing about it."""
+    if store.get_snapshot_format() == SNAPSHOT_FORMAT:
+        return False
+    store.delete_snapshot("public")
+    store.set_snapshot_format(SNAPSHOT_FORMAT)
+    return True
+
+
 def seed_credentials_if_present(store: Store, settings: Settings) -> None:
     if (
         store.get_h1_credentials() is None
@@ -151,6 +173,8 @@ async def main_async(base_dir: str = ".") -> None:
     ensure_bot_token(base_dir)
     settings = load_settings(base_dir=base_dir)
     store = Store(settings.db_path, settings.secret_key)
+    if migrate_snapshots(store):
+        log.info("Public baseline reset for this version; it will be re-taken quietly.")
     seed_credentials_if_present(store, settings)
 
     # One waker per loop, so an in-chat change (/setup saving a key, /config
