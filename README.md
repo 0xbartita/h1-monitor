@@ -72,8 +72,9 @@ Get your API credentials from [hackerone.com/settings/api_token](https://hackero
 Skip `/setup` entirely if you only care about public programs.
 
 The first check is a **silent baseline** — otherwise you'd get thousands of alerts for
-programs that were already there. Real alerts start from the next check. Private programs fill
-in gradually during that first sweep, so `/status` shows the count climbing for ~10–15 min.
+programs that were already there. Real alerts start from the next check. The private sweep
+begins the moment you send `/setup` — no restart, no waiting for the next tick — and fills in
+gradually from there, so `/status` shows the count climbing for ~10–15 min.
 
 ## What you get alerted about
 

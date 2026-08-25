@@ -92,7 +92,17 @@ async def main_async(base_dir: str = ".") -> None:
     store = Store(settings.db_path, settings.secret_key)
     seed_credentials_if_present(store, settings)
 
-    app = build_application(settings, store)
+    # One waker per loop, so an in-chat change (/setup saving a key, /config
+    # shortening an interval) interrupts that loop's sleep instead of waiting
+    # it out. Handlers run on this same event loop, so set() is enough.
+    wakers = {"public": asyncio.Event(), "private": asyncio.Event()}
+
+    def wake(which: str) -> None:
+        waker = wakers.get(which)
+        if waker is not None:
+            waker.set()
+
+    app = build_application(settings, store, wake=wake)
     stop = asyncio.Event()
 
     def resolve_chat_id() -> int | None:
@@ -123,8 +133,8 @@ async def main_async(base_dir: str = ".") -> None:
 
     try:
         await asyncio.gather(
-            public_poll_loop(store, dir_provider, notifier, stop),
-            private_poll_loop(store, h1_provider, notifier, stop),
+            public_poll_loop(store, dir_provider, notifier, stop, wakers["public"]),
+            private_poll_loop(store, h1_provider, notifier, stop, wakers["private"]),
         )
     finally:
         await app.updater.stop()

@@ -162,3 +162,107 @@ async def test_private_loop_survives_fetch_and_alert_send_crashes(tmp_path):
     stop.set()
     # If either crash escaped the loop, wait_for would re-raise instead of returning.
     await asyncio.wait_for(task, timeout=3)
+
+
+@pytest.mark.asyncio
+async def test_private_loop_sweeps_as_soon_as_credentials_arrive(tmp_path):
+    """/setup must not leave the operator staring at 'Private — 0' for a whole
+    interval. Ringing the waker cuts the sleep short and sweeps now."""
+    import asyncio
+    from h1monitor.poller import private_poll_loop
+    st = _store(tmp_path)
+    prefs = st.get_preferences()
+    prefs.private_interval_minutes = 120       # without a waker: a two-hour wait
+    st.save_preferences(prefs)
+    sweeps = []
+
+    class Client:
+        async def fetch_private_snapshot(self, previous=None):
+            sweeps.append(1)
+            return Snapshot({"acme": _prog("acme")})
+
+        async def aclose(self):
+            pass
+
+    stop, wake = asyncio.Event(), asyncio.Event()
+    task = asyncio.ensure_future(
+        private_poll_loop(st, lambda u, t: Client(), FakeNotifier(), stop, wake)
+    )
+    await asyncio.sleep(0.05)
+    assert sweeps == []                        # no key yet, nothing to sweep
+
+    st.set_h1_credentials("u", "t")
+    wake.set()
+    for _ in range(100):
+        if sweeps:
+            break
+        await asyncio.sleep(0.01)
+    stop.set()
+    await asyncio.wait_for(task, timeout=3)
+    assert sweeps, "a woken loop must sweep now, not after private_interval_minutes"
+
+
+@pytest.mark.asyncio
+async def test_waking_the_private_loop_sweeps_once_and_settles(tmp_path):
+    """The waker must be consumed once rung — a waker left set would spin the
+    loop through back-to-back sweeps and hammer HackerOne's rate limit."""
+    import asyncio
+    from h1monitor.poller import private_poll_loop
+    st = _store(tmp_path)
+    prefs = st.get_preferences()
+    prefs.private_interval_minutes = 120
+    st.save_preferences(prefs)
+    st.set_h1_credentials("u", "t")
+    sweeps = []
+
+    class Client:
+        async def fetch_private_snapshot(self, previous=None):
+            sweeps.append(1)
+            return Snapshot({"acme": _prog("acme")})
+
+        async def aclose(self):
+            pass
+
+    stop, wake = asyncio.Event(), asyncio.Event()
+    task = asyncio.ensure_future(
+        private_poll_loop(st, lambda u, t: Client(), FakeNotifier(), stop, wake)
+    )
+    await asyncio.sleep(0.05)                  # startup sweep
+    wake.set()
+    await asyncio.sleep(0.25)                  # woken sweep, then back to sleep
+    stop.set()
+    await asyncio.wait_for(task, timeout=3)
+    assert len(sweeps) == 2, f"expected startup + one woken sweep, got {len(sweeps)}"
+
+
+@pytest.mark.asyncio
+async def test_public_loop_picks_up_a_new_interval_without_a_restart(tmp_path):
+    """Same trap on the public side: shortening the check interval in /config
+    shouldn't wait out the old, longer sleep before taking effect."""
+    import asyncio
+    from h1monitor.directory_poller import public_poll_loop
+    st = _store(tmp_path)
+    prefs = st.get_preferences()
+    prefs.poll_interval_minutes = 1440         # a day
+    st.save_preferences(prefs)
+    sweeps = []
+
+    class Client:
+        async def fetch_public_snapshot(self):
+            sweeps.append(1)
+            return Snapshot({"a": _prog("a")})
+
+        async def aclose(self):
+            pass
+
+    stop, wake = asyncio.Event(), asyncio.Event()
+    task = asyncio.ensure_future(
+        public_poll_loop(st, lambda: Client(), FakeNotifier(), stop, wake)
+    )
+    await asyncio.sleep(0.05)
+    assert len(sweeps) == 1
+    wake.set()
+    await asyncio.sleep(0.15)
+    stop.set()
+    await asyncio.wait_for(task, timeout=3)
+    assert len(sweeps) == 2, "a woken public loop must re-check without a restart"

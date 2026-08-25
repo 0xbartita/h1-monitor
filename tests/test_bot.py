@@ -182,3 +182,32 @@ def test_apply_toggle_exclude_paused(tmp_path):
     st.save_preferences(Preferences.defaults())
     p = apply_toggle(st, "toggle:exclude_paused")
     assert p.exclude_paused is False
+
+
+def test_saving_credentials_wakes_the_private_loop(tmp_path):
+    """The whole point: an API key arriving must kick the sleeping sweep."""
+    from h1monitor.bot import save_h1_credentials
+    st = _store(tmp_path)
+    rung = []
+    save_h1_credentials(st, "id", "tok", wake=rung.append)
+    assert st.get_h1_credentials() == ("id", "tok")
+    assert rung == ["private"]
+
+
+def test_saving_credentials_works_without_a_waker(tmp_path):
+    """Defensive: no waker wired (tests, seeding) must not crash the save."""
+    from h1monitor.bot import save_h1_credentials
+    st = _store(tmp_path)
+    save_h1_credentials(st, "id", "tok")
+    assert st.get_h1_credentials() == ("id", "tok")
+
+
+def test_interval_change_wakes_the_loop_it_affects(tmp_path):
+    st = _store(tmp_path)
+    st.save_preferences(Preferences.defaults())
+    rung = []
+    apply_interval_step(st, "intv:private:-", wake=rung.append)
+    assert rung == ["private"]
+    rung.clear()
+    apply_interval_step(st, "intv:public:+", wake=rung.append)
+    assert rung == ["public"]

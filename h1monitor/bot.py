@@ -92,8 +92,10 @@ def step_interval(current: int, presets: list[int], direction: int) -> int:
     return max(lower) if lower else current
 
 
-def apply_interval_step(store: Store, data: str) -> Preferences:
-    """Handle an `intv:{public|private}:{+|-}` tap: step and persist."""
+def apply_interval_step(store: Store, data: str, wake=None) -> Preferences:
+    """Handle an `intv:{public|private}:{+|-}` tap: step, persist, and wake that
+    loop — a shortened interval should take effect now, not after the old (and
+    longer) sleep it is already sitting in has run out."""
     _, which, sign = data.split(":")
     direction = 1 if sign == "+" else -1
     prefs = store.get_preferences()
@@ -101,7 +103,19 @@ def apply_interval_step(store: Store, data: str) -> Preferences:
     new = step_interval(getattr(prefs, field), _INTERVAL_PRESETS[which], direction)
     setattr(prefs, field, new)
     store.save_preferences(prefs)
+    if wake is not None:
+        wake(which)
     return prefs
+
+
+def save_h1_credentials(store: Store, username: str, token: str, wake=None) -> None:
+    """Store the operator's API key and wake the private loop, so their first
+    sweep starts within seconds. Without the wake the loop stays asleep in the
+    interval it entered at startup — up to 2h of '/status: Private — 0' with
+    nothing to suggest anything is wrong."""
+    store.set_h1_credentials(username, token)
+    if wake is not None:
+        wake("private")
 
 
 def estimate_sweep_minutes(nprograms: int, nscopes: int) -> int:
@@ -266,7 +280,7 @@ async def _post_init(app: Application) -> None:
     await app.bot.set_my_commands(BOT_COMMANDS)
 
 
-def build_application(settings: Settings, store: Store) -> Application:
+def build_application(settings: Settings, store: Store, wake=None) -> Application:
     app = (
         Application.builder()
         .token(settings.telegram_bot_token)
@@ -302,7 +316,7 @@ def build_application(settings: Settings, store: Store) -> Application:
         if not parsed:
             await update.effective_chat.send_message(setup_usage(), parse_mode="HTML")
             return
-        store.set_h1_credentials(*parsed)
+        save_h1_credentials(store, *parsed, wake=wake)
         await update.effective_chat.send_message(setup_saved(), parse_mode="HTML")
 
     async def config(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -329,7 +343,7 @@ def build_application(settings: Settings, store: Store) -> Application:
         if not guard(update):
             return
         q = update.callback_query
-        prefs = apply_interval_step(store, q.data)
+        prefs = apply_interval_step(store, q.data, wake=wake)
         which = q.data.split(":")[1]
         mins = getattr(prefs, _INTERVAL_FIELD[which])
         await q.answer(f"Every {format_interval(mins)}")

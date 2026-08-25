@@ -5,7 +5,7 @@ import time
 
 from h1monitor.store import Store
 from h1monitor.notifier import Notifier, escape_html, describe_error
-from h1monitor.poller import await_or_stop, send_deduped_alert
+from h1monitor.poller import await_or_stop, send_deduped_alert, sleep_until_due
 from h1monitor.differ import diff_snapshot
 from h1monitor.filters import filter_changes
 from h1monitor.models import ChangeType
@@ -33,7 +33,11 @@ async def run_public_cycle(store: Store, client, notifier: Notifier) -> None:
 
 
 async def public_poll_loop(
-    store: Store, client_provider, notifier: Notifier, stop: asyncio.Event
+    store: Store,
+    client_provider,
+    notifier: Notifier,
+    stop: asyncio.Event,
+    wake: asyncio.Event | None = None,
 ) -> None:
     while not stop.is_set():
         client = client_provider()
@@ -50,7 +54,4 @@ async def public_poll_loop(
         if stop.is_set():
             break
         interval = store.get_preferences().poll_interval_minutes * 60
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=interval)
-        except asyncio.TimeoutError:
-            pass
+        await sleep_until_due(stop, wake, interval)

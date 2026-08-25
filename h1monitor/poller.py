@@ -35,6 +35,30 @@ async def await_or_stop(coro, stop: asyncio.Event) -> bool:
     return False
 
 
+async def sleep_until_due(
+    stop: asyncio.Event, wake: asyncio.Event | None, seconds: float
+) -> None:
+    """Wait out a poll interval, cutting it short when shutdown is requested or
+    someone rings `wake` — /setup saving an API key, or /config shortening the
+    interval. Without this a key added just after startup sits unused until the
+    next tick, which on the private loop's 2h default means a two-hour wait.
+
+    The waker is consumed here, so one ring buys exactly one extra cycle rather
+    than spinning the loop through back-to-back sweeps."""
+    waiters = [asyncio.ensure_future(stop.wait())]
+    if wake is not None:
+        waiters.append(asyncio.ensure_future(wake.wait()))
+    try:
+        await asyncio.wait(
+            waiters, timeout=seconds, return_when=asyncio.FIRST_COMPLETED
+        )
+    finally:
+        for w in waiters:
+            w.cancel()
+    if wake is not None:
+        wake.clear()
+
+
 async def send_deduped_alert(store: Store, notifier, key: str, text: str) -> None:
     """Send a one-shot alert (deduped by `key`). If delivery fails, clear the
     dedup row so the alert retries next cycle instead of going silent forever.
@@ -72,7 +96,11 @@ async def run_private_cycle(store: Store, client, notifier: Notifier) -> None:
 
 
 async def private_poll_loop(
-    store: Store, client_provider, notifier: Notifier, stop: asyncio.Event
+    store: Store,
+    client_provider,
+    notifier: Notifier,
+    stop: asyncio.Event,
+    wake: asyncio.Event | None = None,
 ) -> None:
     while not stop.is_set():
         creds = store.get_h1_credentials()
@@ -100,7 +128,4 @@ async def private_poll_loop(
             if stop.is_set():
                 break
         interval = store.get_preferences().private_interval_minutes * 60
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=interval)
-        except asyncio.TimeoutError:
-            pass
+        await sleep_until_due(stop, wake, interval)
