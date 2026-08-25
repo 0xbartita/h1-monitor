@@ -86,3 +86,42 @@ async def test_lazynotifier_delivers_returns_true():
 
     assert await LazyNotifier(Bot(), lambda: 7).send_text("hi") is True
     assert sent == [(7, "hi")]
+
+
+def test_transient_network_blip_logs_one_line_not_a_traceback():
+    """A DNS blip makes python-telegram-bot dump a multi-page traceback per
+    retry. It recovers on its own, so it should read as one warning line —
+    a wall of stack traces looks like a crash and isn't."""
+    import logging
+    from telegram.error import NetworkError
+    from h1monitor.main import NetworkNoiseFilter
+
+    exc = NetworkError(
+        "httpx.ConnectError: [Errno -3] Temporary failure in name resolution"
+    )
+    rec = logging.LogRecord(
+        "telegram.ext.Updater", logging.ERROR, __file__, 1,
+        "Exception happened while polling for updates.", (), (type(exc), exc, None),
+    )
+    assert NetworkNoiseFilter().filter(rec) is True   # kept, never swallowed
+    assert rec.exc_info is None                       # but without the stack dump
+    assert rec.levelno == logging.WARNING             # not something to act on
+    msg = rec.getMessage()
+    assert "retrying" in msg.lower()
+    assert "name resolution" in msg                   # the cause still shows
+
+
+def test_real_errors_keep_their_traceback():
+    """Only transient network errors are quietened — anything else must keep
+    its stack trace and its ERROR level."""
+    import logging
+    from h1monitor.main import NetworkNoiseFilter
+
+    exc = ValueError("genuinely broken")
+    rec = logging.LogRecord(
+        "telegram.ext.Updater", logging.ERROR, __file__, 1,
+        "Exception happened while polling for updates.", (), (type(exc), exc, None),
+    )
+    assert NetworkNoiseFilter().filter(rec) is True
+    assert rec.exc_info is not None
+    assert rec.levelno == logging.ERROR

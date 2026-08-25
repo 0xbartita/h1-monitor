@@ -7,12 +7,14 @@ import signal
 import sys
 from collections.abc import Callable
 
+from telegram.error import NetworkError
+
 from h1monitor.config import (
     load_settings, Settings, ConfigError, load_dotenv, upsert_env_var,
 )
 from h1monitor.store import Store
 from h1monitor.bot import build_application, BOT_COMMANDS
-from h1monitor.notifier import Notifier, split_for_telegram
+from h1monitor.notifier import Notifier, split_for_telegram, describe_error
 from h1monitor.h1_client import H1Client
 from h1monitor.directory_client import DirectoryClient
 from h1monitor.poller import private_poll_loop
@@ -81,12 +83,35 @@ class LazyNotifier(Notifier):
             return False
 
 
+class NetworkNoiseFilter(logging.Filter):
+    """Collapse python-telegram-bot's retry tracebacks into a single line.
+
+    When the network drops, the updater logs a full multi-page traceback for
+    every retry — a two-minute DNS outage buries the log in a wall of identical
+    stack traces that reads like a crash. It isn't: the updater backs off and
+    recovers on its own. Keep the line (and the cause), drop the stack, and say
+    plainly that it's retrying. Anything that isn't a transient network error
+    passes through untouched, traceback and all."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exc = record.exc_info[1] if record.exc_info else None
+        if isinstance(exc, NetworkError):
+            record.exc_info = None
+            record.exc_text = None
+            record.msg = "Telegram unreachable (%s) — retrying."
+            record.args = (describe_error(exc),)
+            record.levelno = logging.WARNING
+            record.levelname = "WARNING"
+        return True
+
+
 async def main_async(base_dir: str = ".") -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     # httpx logs full request URLs at INFO — those include the bot token in the
     # api.telegram.org/bot<TOKEN>/... path. Silence them so secrets never hit logs.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("telegram.ext.Updater").addFilter(NetworkNoiseFilter())
     ensure_bot_token(base_dir)
     settings = load_settings(base_dir=base_dir)
     store = Store(settings.db_path, settings.secret_key)
