@@ -3,6 +3,7 @@ from cryptography.fernet import Fernet
 from h1monitor.store import Store
 from h1monitor.config import Settings
 from h1monitor.bot import (
+    claim_code, try_claim, unclaimed, deny_text,
     is_owner, build_config_keyboard, apply_toggle, parse_setup_args,
     change_type_label, status_text, help_text, setup_text,
     start_text, BOT_COMMANDS, config_prompt,
@@ -129,12 +130,67 @@ def _store(tmp_path):
     return Store(str(tmp_path / "b.db"), Fernet.generate_key())
 
 
-def test_first_contact_captures_owner(tmp_path):
-    st = _store(tmp_path)
-    assert is_owner(555, st, _settings()) is True
+def test_talking_to_the_bot_does_not_make_you_its_owner(tmp_path):
+    # This is the whole point of the claim code: merely sending a command must
+    # never take ownership. It used to, so whoever found the bot first won it.
+    st, s = _store(tmp_path), _settings()
+    assert is_owner(555, st, s) is False
+    assert st.get_owner_chat_id() is None
+
+
+def test_right_code_claims_the_bot_once(tmp_path):
+    st, s = _store(tmp_path), _settings()
+    code = claim_code(st)
+    assert try_claim(555, f"/start {code}", st, s) is True
+    assert is_owner(555, st, s) is True
     assert st.get_owner_chat_id() == 555
-    assert is_owner(555, st, _settings()) is True
-    assert is_owner(999, st, _settings()) is False
+    # The code is spent, so a second chat cannot reuse it.
+    assert try_claim(999, f"/start {code}", st, s) is False
+    assert is_owner(999, st, s) is False
+
+
+def test_wrong_or_missing_code_claims_nothing(tmp_path):
+    st, s = _store(tmp_path), _settings()
+    claim_code(st)
+    assert try_claim(555, "/start", st, s) is False
+    assert try_claim(555, "/start wrong", st, s) is False
+    assert try_claim(555, "", st, s) is False
+    assert st.get_owner_chat_id() is None
+    assert unclaimed(st, s) is True
+
+
+def test_code_is_case_insensitive_and_survives_a_restart(tmp_path):
+    # The operator copies it out of a log, so tolerate case; and a restart must
+    # not invalidate the code the installer already printed.
+    st, s = _store(tmp_path), _settings()
+    code = claim_code(st)
+    assert claim_code(st) == code
+    assert try_claim(555, f"/start {code.upper()}", st, s) is True
+
+
+def test_a_group_chat_cannot_claim_the_bot(tmp_path):
+    # Claiming in a group would hand every private-program alert to everyone in
+    # it, so only a one-to-one chat may claim.
+    st, s = _store(tmp_path), _settings()
+    code = claim_code(st)
+    assert try_claim(-100, f"/start {code}", st, s, private=False) is False
+    assert st.get_owner_chat_id() is None
+
+
+def test_pinned_owner_in_env_cannot_be_claimed_away(tmp_path):
+    st = _store(tmp_path)
+    s = Settings("bot", 111, ":memory:", Fernet.generate_key(), None, None, None)
+    assert unclaimed(st, s) is False
+    assert try_claim(999, "/start whatever", st, s) is False
+    assert is_owner(111, st, s) is True
+
+
+def test_refusal_text_says_which_situation_it_is(tmp_path):
+    st, s = _store(tmp_path), _settings()
+    assert "no owner yet" in deny_text(st, s)
+    assert claim_code(st) not in deny_text(st, s)   # never leak the code itself
+    try_claim(555, f"/start {claim_code(st)}", st, s)
+    assert "already in use" in deny_text(st, s)
 
 
 def test_fixed_owner_from_settings(tmp_path):

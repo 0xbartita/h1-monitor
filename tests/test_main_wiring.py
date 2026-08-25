@@ -125,3 +125,45 @@ def test_real_errors_keep_their_traceback():
     assert NetworkNoiseFilter().filter(rec) is True
     assert rec.exc_info is not None
     assert rec.levelno == logging.ERROR
+
+
+# --- claiming: the code has to reach the operator, and only the operator -----
+
+def _env(tmp_path, token="123:ABC"):
+    (tmp_path / ".env").write_text(f"TELEGRAM_BOT_TOKEN={token}\n")
+    return str(tmp_path)
+
+
+def test_claim_banner_shows_the_exact_command_to_send():
+    from h1monitor.main import claim_banner
+    b = claim_banner("abc12345")
+    assert "/start abc12345" in b
+    assert "will not answer anyone" in b
+
+
+def test_print_claim_code_is_stable_and_stops_once_claimed(tmp_path, capsys):
+    from h1monitor.main import print_claim_code
+    from h1monitor.config import load_settings
+    from h1monitor.store import Store
+
+    base = _env(tmp_path)
+    assert print_claim_code(base) == 0
+    first = capsys.readouterr().out.strip()
+    assert len(first) == 8 and all(c in "0123456789abcdef" for c in first)
+
+    # A restart must not invalidate the code the installer already printed.
+    assert print_claim_code(base) == 0
+    assert capsys.readouterr().out.strip() == first
+
+    s = load_settings(base_dir=base)
+    st = Store(s.db_path, s.secret_key)
+    st.set_owner_chat_id(555)
+    st.close()
+    assert print_claim_code(base) == 0
+    assert "already claimed" in capsys.readouterr().out
+
+
+def test_print_claim_code_reports_a_missing_token_cleanly(tmp_path, capsys):
+    from h1monitor.main import print_claim_code
+    assert print_claim_code(str(tmp_path)) == 1
+    assert "TELEGRAM_BOT_TOKEN" in capsys.readouterr().err

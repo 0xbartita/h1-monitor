@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import secrets
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application, CommandHandler, CallbackQueryHandler, ContextTypes,
@@ -12,6 +15,8 @@ from h1monitor import __version__
 from h1monitor.notifier import escape_html
 from h1monitor.updates import is_newer, version_line, channel_link
 
+log = logging.getLogger("h1monitor")
+
 # Registered with Telegram so typing "/" pops up an autocomplete menu.
 BOT_COMMANDS = [
     BotCommand("start", "Show status and capture your chat"),
@@ -23,15 +28,79 @@ BOT_COMMANDS = [
 
 
 def is_owner(chat_id: int | None, store: Store, settings: Settings) -> bool:
+    """Does this chat own the bot? A pure check — it never claims.
+
+    It used to: the first chat to send any command was written in as owner. Bot
+    usernames are searchable and the installer starts the bot the moment it has
+    a token, so a stranger who got there first took the bot, received every
+    private-program alert, and left the real operator with a bot that answered
+    nobody. Claiming is now a deliberate act (see try_claim)."""
     if chat_id is None:
         return False
     if settings.owner_chat_id is not None:
         return chat_id == settings.owner_chat_id
-    stored = store.get_owner_chat_id()
-    if stored is None:
-        store.set_owner_chat_id(chat_id)
-        return True
-    return chat_id == stored
+    return chat_id == store.get_owner_chat_id()
+
+
+def unclaimed(store: Store, settings: Settings) -> bool:
+    """True while nobody owns the bot yet and no owner is pinned in .env."""
+    return settings.owner_chat_id is None and store.get_owner_chat_id() is None
+
+
+def claim_code(store: Store) -> str:
+    """The one-time code that claims this bot, created on first use.
+
+    Stored rather than generated per run, so a restart doesn't invalidate the
+    code the installer already printed."""
+    code = store.get_claim_code()
+    if not code:
+        code = secrets.token_hex(4)
+        store.set_claim_code(code)
+    return code
+
+
+def try_claim(
+    chat_id: int, text: str | None, store: Store, settings: Settings,
+    private: bool = True,
+) -> bool:
+    """Claim the bot for `chat_id` if `text` is "/start <the right code>".
+
+    Private chats only — a group claim would hand alerts to everyone in it. The
+    code is compared in constant time out of habit; the real protection is that
+    it never leaves the server the bot runs on."""
+    if not unclaimed(store, settings) or not private:
+        return False
+    parts = (text or "").split()
+    supplied = parts[1].strip().lower() if len(parts) > 1 else ""
+    if not supplied or not secrets.compare_digest(supplied, claim_code(store)):
+        return False
+    store.set_owner_chat_id(chat_id)
+    store.clear_claim_code()
+    return True
+
+
+def claim_prompt() -> str:
+    """Shown to anyone who talks to an unclaimed bot. Says how to find the code,
+    never the code itself — that only exists on the machine running the bot."""
+    return (
+        "\U0001F512 <b>This bot has no owner yet</b>\n\n"
+        "To claim it, send:\n"
+        "<code>/start YOUR-CODE</code>\n\n"
+        "Your code was printed when the bot started. To see it again:\n"
+        "\u2022 script install \u2014 <code>journalctl --user -u h1monitor | grep -i claim</code>\n"
+        "\u2022 Docker \u2014 <code>docker logs h1monitor | grep -i claim</code>"
+    )
+
+
+def already_claimed_text() -> str:
+    return (
+        "\U0001F512 <b>This bot is already in use.</b>\n"
+        "It only answers the person who set it up."
+    )
+
+
+def deny_text(store: Store, settings: Settings) -> str:
+    return claim_prompt() if unclaimed(store, settings) else already_claimed_text()
 
 
 def parse_setup_args(text: str) -> tuple[str, str] | None:
@@ -313,31 +382,59 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
         .build()
     )
 
-    def guard(update: Update) -> bool:
+    async def guard(update: Update) -> bool:
+        """True when the sender owns this bot; otherwise say so and refuse.
+
+        Refusing silently used to mean a locked-out operator saw nothing at all
+        and had no way to tell a bug from a hijack."""
         chat = update.effective_chat
-        return is_owner(chat.id if chat else None, store, settings)
+        if is_owner(chat.id if chat else None, store, settings):
+            return True
+        log.warning(
+            "Refused a command from chat %s (not the owner)",
+            chat.id if chat else None,
+        )
+        msg = update.effective_message
+        if msg is not None:
+            try:
+                await msg.reply_text(deny_text(store, settings), parse_mode="HTML")
+            except Exception:  # noqa: BLE001 — a failed refusal must not raise
+                pass
+        return False
 
     async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
+        chat, msg = update.effective_chat, update.effective_message
+        if chat is None or msg is None:
             return
+        if not is_owner(chat.id, store, settings):
+            if not unclaimed(store, settings):
+                log.warning("Refused /start from chat %s (not the owner)", chat.id)
+                await msg.reply_text(already_claimed_text(), parse_mode="HTML")
+                return
+            if not try_claim(chat.id, msg.text, store, settings,
+                             private=chat.type == "private"):
+                log.warning("Rejected a claim attempt from chat %s", chat.id)
+                await msg.reply_text(claim_prompt(), parse_mode="HTML")
+                return
+            log.info("Bot claimed by chat %s", chat.id)
         has = store.get_h1_credentials() is not None
-        await update.message.reply_text(
+        await msg.reply_text(
             start_text(has, latest=store.get_known_release()),
             parse_mode="HTML", disable_web_page_preview=True,
         )
 
     async def setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
+        if not await guard(update):
             return
-        text = update.message.text or ""
+        text = update.effective_message.text or ""
         # Plain "/setup" → show instructions.
         if len(text.split()) <= 1:
-            await update.message.reply_text(setup_text(), parse_mode="HTML")
+            await update.effective_message.reply_text(setup_text(), parse_mode="HTML")
             return
         # "/setup <username> <token>" → the message carries the key, so delete it
         # first (before anything can fail), then save or explain the format.
         try:
-            await update.message.delete()
+            await update.effective_message.delete()
         except Exception:
             pass
         parsed = parse_setup_args(text)
@@ -348,19 +445,19 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
         await update.effective_chat.send_message(setup_saved(), parse_mode="HTML")
 
     async def config(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
+        if not await guard(update):
             return
         priv = store.load_snapshot("private")
         npriv = len(priv.programs) if priv else 0
         priv_sc = sum(len(p.scopes) for p in priv.programs.values()) if priv else 0
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             config_prompt(npriv, priv_sc),
             parse_mode="HTML",
             reply_markup=build_config_keyboard(store.get_preferences()),
         )
 
     async def on_toggle(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
+        if not await guard(update):
             return
         q = update.callback_query
         prefs = apply_toggle(store, q.data)
@@ -368,7 +465,7 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
         await q.edit_message_reply_markup(build_config_keyboard(prefs))
 
     async def on_interval(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
+        if not await guard(update):
             return
         q = update.callback_query
         prefs = apply_interval_step(store, q.data, wake=wake)
@@ -382,7 +479,7 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
         await update.callback_query.answer()
 
     async def status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
+        if not await guard(update):
             return
         prefs = store.get_preferences()
         has = store.get_h1_credentials() is not None
@@ -392,7 +489,7 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
         npriv = len(priv.programs) if priv else 0
         pub_sc = sum(len(p.scopes) for p in pub.programs.values()) if pub else 0
         priv_sc = sum(len(p.scopes) for p in priv.programs.values()) if priv else 0
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             status_text(
                 prefs, has, npub, npriv, pub_sc, priv_sc,
                 latest=store.get_known_release(),
@@ -401,9 +498,9 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
         )
 
     async def help_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        if not guard(update):
+        if not await guard(update):
             return
-        await update.message.reply_text(help_text(), parse_mode="HTML")
+        await update.effective_message.reply_text(help_text(), parse_mode="HTML")
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setup", setup))

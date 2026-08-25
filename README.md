@@ -61,11 +61,21 @@ No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
 
 | Command | What it does |
 |---|---|
-| `/start` | Claim the bot — from then on it only answers you |
+| `/start <code>` | Claim the bot — from then on it only answers you |
 | `/setup <username> <token>` | Connect HackerOne for private programs. The message is **deleted the instant** the key is captured |
 | `/config` | Toggle each alert type, and set both check intervals |
 | `/status` | Programs and scopes watched, intervals, whether the API key is connected |
 | `/help` | The list above |
+
+**The claim code** stops anyone else taking your bot — bot names are searchable, so
+without it whoever messaged first would own it and get your alerts. The installer
+prints the code; it never leaves your machine. To see it again:
+
+```bash
+cd ~/h1-monitor && ./.venv/bin/python -m h1monitor --claim-code
+```
+
+On Docker: `docker exec h1monitor python -m h1monitor --claim-code`
 
 Get your API credentials from [hackerone.com/settings/api_token](https://hackerone.com/settings/api_token/edit).
 Skip `/setup` entirely if you only care about public programs.

@@ -166,6 +166,18 @@ class Store:
         raw = self._get(f"last_poll:{source}")
         return float(raw) if raw else None
 
+    # --- one-time code that claims an unclaimed bot ---
+    def get_claim_code(self) -> str | None:
+        return self._get("claim_code")
+
+    def set_claim_code(self, code: str) -> None:
+        self._set("claim_code", code)
+
+    def clear_claim_code(self) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM kv WHERE key=?", ("claim_code",))
+            self._db.commit()
+
     # --- released version we last saw upstream ---
     def get_known_release(self) -> tuple[str, str] | None:
         raw = self._get("known_release")

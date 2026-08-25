@@ -13,7 +13,7 @@ from h1monitor.config import (
     load_settings, Settings, ConfigError, load_dotenv, upsert_env_var,
 )
 from h1monitor.store import Store
-from h1monitor.bot import build_application, BOT_COMMANDS
+from h1monitor.bot import build_application, BOT_COMMANDS, unclaimed, claim_code
 from h1monitor.notifier import Notifier, split_for_telegram, describe_error
 from h1monitor.h1_client import H1Client
 from h1monitor.directory_client import DirectoryClient
@@ -47,6 +47,39 @@ def ensure_bot_token(
         token = input_fn("Telegram bot token: ").strip()
     upsert_env_var(base_dir, "TELEGRAM_BOT_TOKEN", token)
     out("Saved to .env — starting now. You won't be asked again.\n")
+
+
+def claim_banner(code: str) -> str:
+    """The startup notice telling the operator how to take ownership. Loud on
+    purpose: until someone claims the bot it answers nobody, and a quiet line
+    scrolls past in a log people only read when something is already wrong."""
+    rule = "=" * 60
+    return (
+        f"\n{rule}\n"
+        "  This bot has no owner yet, so it will not answer anyone.\n"
+        "  Open Telegram, find your bot, and send it exactly:\n"
+        f"\n      /start {code}\n\n"
+        "  That claims it. Nobody else can, without this code.\n"
+        f"{rule}"
+    )
+
+
+def print_claim_code(base_dir: str = ".") -> int:
+    """`python -m h1monitor --claim-code` — show the code without reading logs."""
+    try:
+        settings = load_settings(base_dir=base_dir)
+    except ConfigError as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        return 1
+    store = Store(settings.db_path, settings.secret_key)
+    try:
+        if not unclaimed(store, settings):
+            print("This bot is already claimed.")
+            return 0
+        print(claim_code(store))
+        return 0
+    finally:
+        store.close()
 
 
 def seed_credentials_if_present(store: Store, settings: Settings) -> None:
@@ -132,6 +165,11 @@ async def main_async(base_dir: str = ".") -> None:
         if waker is not None:
             waker.set()
 
+    # Before we touch the network: an unreachable Telegram must not be able to
+    # hide the one thing the operator needs to read.
+    if unclaimed(store, settings):
+        log.warning("%s", claim_banner(claim_code(store)))
+
     app = build_application(settings, store, wake=wake)
     stop = asyncio.Event()
 
@@ -151,7 +189,10 @@ async def main_async(base_dir: str = ".") -> None:
     # Register the command list so Telegram shows an autocomplete menu on "/".
     # (post_init only fires via run_polling(), which we don't use.)
     await app.bot.set_my_commands(BOT_COMMANDS)
-    await app.updater.start_polling()
+    # drop_pending_updates matters for the claim: Telegram holds messages sent
+    # while the bot was down for ~24h, so without this a /start typed by someone
+    # who found the bot before it ever ran would be delivered first and win.
+    await app.updater.start_polling(drop_pending_updates=True)
     log.info("Bot started; polling for commands and changes.")
 
     loop = asyncio.get_running_loop()
@@ -178,6 +219,8 @@ async def main_async(base_dir: str = ".") -> None:
 
 
 def run() -> None:
+    if "--claim-code" in sys.argv[1:]:
+        raise SystemExit(print_claim_code())
     try:
         asyncio.run(main_async())
     except ConfigError as e:
