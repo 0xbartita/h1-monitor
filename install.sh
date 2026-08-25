@@ -106,7 +106,19 @@ RestartSec=15
 [Install]
 WantedBy=default.target
 EOF
-    loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || warn "Couldn't enable lingering — the service may stop when you log out."
+    # Lingering is what makes the bot start at boot and keep running while you
+    # are logged out. Without it a user service only lives inside a login
+    # session. enable-linger can report success and still not take effect, so
+    # confirm the state rather than trusting the exit code -- silently ending up
+    # with a bot that dies at logout is the worst outcome here.
+    loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+    if loginctl show-user "$(id -un)" --property=Linger 2>/dev/null | grep -q '=yes'; then
+        ok "It will keep running after you log out, and start again at boot."
+    else
+        warn "The bot will run now, but it will stop when you log out and will"
+        warn "not start at boot. To fix that, run:"
+        warn "    sudo loginctl enable-linger $(id -un)"
+    fi
     systemctl --user daemon-reload
     systemctl --user enable --now h1monitor >/dev/null 2>&1 || true
     systemctl --user restart h1monitor
