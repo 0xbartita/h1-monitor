@@ -31,9 +31,6 @@ docker run -d --name h1monitor --restart unless-stopped \
 *(or drop [`docker-compose.yml`](docker-compose.yml) in a folder with a `.env` and run
 `docker compose up -d` — that setup **auto-updates** itself as new versions ship)*
 
-To update a plain `docker run`: `docker pull ghcr.io/0xbartita/h1-monitor`, then recreate
-the container. Compose users need do nothing — new versions arrive on their own.
-
 No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
 
 ## Then, in Telegram
@@ -44,10 +41,38 @@ No token yet? Message [@BotFather](https://t.me/BotFather) → `/newbot`.
   Skip it for public-only.
 - **`/config`** — choose alerts & check intervals   ·   **`/status`** — what's watched
 
-The first check is a silent baseline; real alerts start from the next one.
+The first check is a silent baseline; real alerts start from the next one. Private programs
+fill in gradually — their scopes are fetched one at a time to stay under HackerOne's rate
+limit, so `/status` shows the count climbing for ~10–15 min.
+
+## Manage it
+
+Installed with the one-liner (systemd user service, state in `~/h1-monitor`):
+
+```bash
+systemctl --user status h1monitor     # is it running?
+journalctl --user -u h1monitor -f     # watch it work
+systemctl --user restart h1monitor    # after editing .env
+```
+
+Docker (state in the `h1monitor` volume):
+
+```bash
+docker logs -f h1monitor
+docker restart h1monitor
+```
+
+**Updating.** Re-run the install one-liner — it pulls and restarts in place. On Docker,
+`docker pull ghcr.io/0xbartita/h1-monitor` then recreate the container; compose users with the
+bundled Watchtower need do nothing, new versions arrive on their own.
 
 ## Notes
 
 - Owner-only bot; credentials encrypted at rest and never logged.
+- **One token, one copy.** Telegram lets a single instance poll a bot token, so a second
+  machine needs its own bot from [@BotFather](https://t.me/BotFather) — otherwise the two
+  fight and one dies with `Conflict: terminated by other getUpdates request`.
+- Each install keeps its own state, so a fresh box starts from a clean baseline and needs
+  `/start` and `/setup` again.
 - Manual install, Docker, and all settings: see [`install.sh`](install.sh) and
   [`.env.example`](.env.example).
