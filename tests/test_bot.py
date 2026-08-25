@@ -356,6 +356,21 @@ def test_setup_confirmation_sets_expectations():
     assert "scanning now" in txt
 
 
+def test_setup_does_not_claim_a_delete_that_failed():
+    # Telegram can refuse the delete. Saying "your message was deleted" anyway
+    # leaves the API key on screen while the user believes it is gone.
+    from h1monitor.bot import setup_saved, setup_usage
+    saved = setup_saved(deleted=False)
+    assert "was deleted" not in saved
+    assert "delete it yourself" in saved.lower()
+    # Still saved, and still says what happens next.
+    assert "API key saved" in saved
+    assert "Scanning your private programs now" in saved
+    # Same when the arguments did not parse — the message still carried a key.
+    assert "delete it yourself" in setup_usage(deleted=False).lower()
+    assert "delete it yourself" not in setup_usage(deleted=True).lower()
+
+
 def test_status_says_scanning_while_the_public_baseline_is_missing():
     # Upgrading drops the public baseline on purpose, which reopens the same
     # window: 0 programs, no explanation, looks broken.

@@ -236,14 +236,35 @@ def setup_text() -> str:
     )
 
 
-def setup_usage() -> str:
-    return "⚠️ <b>Usage:</b> <code>/setup &lt;username&gt; &lt;token&gt;</code>"
-
-
-def setup_saved() -> str:
+def please_delete_it_line() -> str:
+    """Shown when Telegram refused the delete. Both callers need it: whether or
+    not the key parsed, the message that carried it is still on screen."""
     return (
-        "🔐 <b>API key saved</b> — and your message was deleted.\n\n"
-        "🔄 <b>Scanning your private programs now.</b>\n"
+        "⚠️ I could not delete your message, so your key is still in this "
+        "chat. <b>Please delete it yourself</b> — hold the message, then tap "
+        "Delete."
+    )
+
+
+def setup_usage(deleted: bool = True) -> str:
+    txt = "⚠️ <b>Usage:</b> <code>/setup &lt;username&gt; &lt;token&gt;</code>"
+    return txt if deleted else f"{txt}\n\n{please_delete_it_line()}"
+
+
+def setup_saved(deleted: bool = True) -> str:
+    # Never say the message was deleted unless it was. Telegram can refuse —
+    # no delete permission in a group, or the message is too old — and telling
+    # someone their key is gone while it sits on screen is the worst outcome.
+    if deleted:
+        first = "🔐 <b>API key saved</b> — and your message was deleted.\n\n"
+    else:
+        first = (
+            "🔐 <b>API key saved.</b>\n"
+            f"{please_delete_it_line()}\n\n"
+        )
+    return (
+        first
+        + "🔄 <b>Scanning your private programs now.</b>\n"
         "This takes about 10-15 minutes. /status says <b>scanning now</b> "
         "until it is done, and I will message you the moment it is."
     )
@@ -425,14 +446,19 @@ def build_application(settings: Settings, store: Store, wake=None) -> Applicatio
         # first (before anything can fail), then save or explain the format.
         try:
             await update.effective_message.delete()
-        except Exception:
-            pass
+            deleted = True
+        except Exception as e:
+            log.warning("Could not delete the /setup message in chat %s: %s",
+                        update.effective_chat.id, e)
+            deleted = False
         parsed = parse_setup_args(text)
         if not parsed:
-            await update.effective_chat.send_message(setup_usage(), parse_mode="HTML")
+            await update.effective_chat.send_message(
+                setup_usage(deleted), parse_mode="HTML")
             return
         save_h1_credentials(store, *parsed, wake=wake)
-        await update.effective_chat.send_message(setup_saved(), parse_mode="HTML")
+        await update.effective_chat.send_message(
+            setup_saved(deleted), parse_mode="HTML")
 
     async def config(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not await guard(update):
