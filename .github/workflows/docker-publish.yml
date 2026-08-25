@@ -25,6 +25,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # A release is only announced to users if the tag and the version in the
+      # code agree. Tag v0.2.0 while __init__.py still says 0.1.0 and everyone
+      # who upgrades keeps being told "v0.2.0 is out" forever, because their
+      # running version never catches up. Fail here rather than ship that.
+      - name: Tag matches __version__
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          code="$(python3 -c "import re, pathlib; print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('h1monitor/__init__.py').read_text()).group(1))")"
+          if [ "$tag" != "$code" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match __version__ ${code} in h1monitor/__init__.py"
+            echo "Bump __version__ to ${tag} and retag, or users who upgrade will be told an update is available forever."
+            exit 1
+          fi
+          echo "OK: tag ${GITHUB_REF_NAME} matches __version__ ${code}"
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
