@@ -27,3 +27,12 @@ def test_no_new_programs():
     prev = Snapshot({"a": _pub("a"), "b": _pub("b")})
     curr = Snapshot({"a": _pub("a"), "b": _pub("b")})
     assert diff_snapshot(prev, curr, ChangeType.NEW_PUBLIC_PROGRAM) == []
+
+
+def test_directory_changes_are_tagged_public():
+    # Every change from the public directory diff must carry source="public",
+    # so the alert header can render the 🌐 Public badge.
+    prev = Snapshot({"a": _pub("a")})
+    curr = Snapshot({"a": _pub("a"), "vercel": _pub("vercel")})
+    changes = diff_snapshot(prev, curr, ChangeType.NEW_PUBLIC_PROGRAM)
+    assert changes and all(c.source == "public" for c in changes)

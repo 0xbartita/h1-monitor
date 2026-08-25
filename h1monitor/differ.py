@@ -60,6 +60,12 @@ def diff_snapshot(
         )
     for h in sorted(prev_h & curr_h):
         changes.extend(_diff_program(prev.programs[h], curr.programs[h]))
+    # The caller's new_program_type already tells us which source this diff is:
+    # NEW_PUBLIC_PROGRAM ⇒ public directory, anything else ⇒ private API. Stamp
+    # every change so the alert header can render the right public/private badge.
+    source = "public" if new_program_type == ChangeType.NEW_PUBLIC_PROGRAM else "private"
+    for c in changes:
+        c.source = source
     return changes
 
 
@@ -101,7 +107,12 @@ def _diff_program(prev: Program, curr: Program) -> list[Change]:
         )
     prev_s, curr_s = set(prev.scopes), set(curr.scopes)
     for k in sorted(curr_s - prev_s):
-        out.append(_mk({ChangeType.SCOPE_ADDED}, curr, f"scope added: {k}", {"scope_key": k}))
+        # Record whether the asset came in in-scope or out-of-scope, so the alert
+        # can flag an out-of-scope addition (not a new target) rather than imply one.
+        out.append(_mk(
+            {ChangeType.SCOPE_ADDED}, curr, f"scope added: {k}",
+            {"scope_key": k, "eligible_for_submission": curr.scopes[k].eligible_for_submission},
+        ))
     for k in sorted(prev_s - curr_s):
         out.append(
             _mk({ChangeType.SCOPE_REMOVED}, curr, f"scope removed: {k}", {"scope_key": k})

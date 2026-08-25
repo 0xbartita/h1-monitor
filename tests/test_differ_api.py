@@ -26,6 +26,31 @@ def test_scope_added():
     assert any(ChangeType.SCOPE_ADDED in c.types for c in changes)
 
 
+def test_api_changes_are_tagged_private():
+    # Every change from the private API diff must carry source="private",
+    # so the alert header can render the 🔒 Private badge.
+    prev = Snapshot({"acme": _prog(scopes={})})
+    curr = Snapshot({"acme": _prog(scopes={"URL:a.com": _scope()})})
+    changes = diff_api(prev, curr)
+    assert changes and all(c.source == "private" for c in changes)
+
+
+def test_scope_added_records_out_of_scope_coverage():
+    # An asset added out of scope (eligible_for_submission=False) must record it,
+    # so the alert can flag "out of scope" instead of implying a new target.
+    prev = Snapshot({"acme": _prog(scopes={})})
+    curr = Snapshot({"acme": _prog(scopes={"URL:a.com": _scope(submit=False)})})
+    c = [c for c in diff_api(prev, curr) if ChangeType.SCOPE_ADDED in c.types][0]
+    assert c.details["eligible_for_submission"] is False
+
+
+def test_scope_added_records_in_scope_coverage():
+    prev = Snapshot({"acme": _prog(scopes={})})
+    curr = Snapshot({"acme": _prog(scopes={"URL:a.com": _scope(submit=True)})})
+    c = [c for c in diff_api(prev, curr) if ChangeType.SCOPE_ADDED in c.types][0]
+    assert c.details["eligible_for_submission"] is True
+
+
 def test_scope_removed():
     prev = Snapshot({"acme": _prog(scopes={"URL:a.com": _scope()})})
     curr = Snapshot({"acme": _prog(scopes={})})

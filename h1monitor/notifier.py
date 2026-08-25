@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 from html import escape
 
 from h1monitor.models import Change, ChangeType
@@ -10,6 +11,7 @@ log = logging.getLogger("h1monitor")
 _MAX = 3800            # soft budget for packing several change lines per message
 _TG_LIMIT = 4096       # Telegram's hard per-message character limit
 _MAX_FIELD = 300       # cap a single old/new field value so one line can't blow up
+_RECENT_LAUNCH_DAYS = 90  # a launch within this window is a genuinely "New Program"
 
 
 def escape_html(s: str) -> str:
@@ -98,6 +100,37 @@ def _link(url: str) -> str:
     return f'🔗 <a href="{escape_html(url)}">{escape_html(_pretty_url(url))}</a>'
 
 
+def _source_badge(source: str) -> str:
+    """Public/private tag for an alert header. An unknown or unset source yields
+    no badge (rather than a wrong one or a dangling separator)."""
+    if source == "public":
+        return "🌐 Public"
+    if source == "private":
+        return "🔒 Private"
+    return ""
+
+
+def _badge_suffix(c: Change) -> str:
+    """' · <badge>' to append after a program name, or '' when source is unset."""
+    badge = _source_badge(c.source)
+    return f" · {badge}" if badge else ""
+
+
+def _launch_is_recent(started_at: str | None, today: date | None = None) -> bool:
+    """True only when we can confirm the program started accepting reports within
+    the recent window. A missing, unparseable, or old date is False — the program
+    is (re)appearing in the public directory, not freshly launched."""
+    if not started_at:
+        return False
+    try:
+        # started_accepting_at arrives as a full ISO timestamp; the date is enough.
+        launched = date.fromisoformat(started_at[:10])
+    except ValueError:
+        return False
+    ref = today or date.today()
+    return launched >= ref - timedelta(days=_RECENT_LAUNCH_DAYS)
+
+
 def _format_new_program(c: Change) -> str:
     dp = c.directory
     kind = (
@@ -106,16 +139,25 @@ def _format_new_program(c: Change) -> str:
         else "vulnerability disclosure program"
     )
     name = escape_html(dp.name if dp else c.program_name)
-    if dp and dp.started_accepting_at:
-        # started_accepting_at arrives as a full ISO timestamp; show date only.
-        date = dp.started_accepting_at[:10]
-        body = f"launched on {escape_html(date)} as a {kind}."
-    else:
-        body = f"was newly observed as a {kind}."
     url = dp.url if dp and dp.url else f"https://hackerone.com/{c.program_handle}"
+    started = dp.started_accepting_at if dp else None
+
+    if _launch_is_recent(started):
+        return (
+            f"🆕 <b>New Program: {name}</b>{_badge_suffix(c)}\n"
+            f"{name} launched on {escape_html(started[:10])} as a {kind}.\n"
+            f"{_link(url)}"
+        )
+    # Not a fresh launch — an established program just (re)appeared in the open
+    # directory. Say "Now listed" rather than calling an old program "new".
+    if started:
+        body = (f"{name} is now listed in the public directory — "
+                f"a {kind} that launched on {escape_html(started[:10])}.")
+    else:
+        body = f"{name} is now listed in the public directory as a {kind}."
     return (
-        f"🆕 <b>New Program: {name}</b>\n"
-        f"{name} {body}\n"
+        f"🆕 <b>Now listed: {name}</b>{_badge_suffix(c)}\n"
+        f"{body}\n"
         f"{_link(url)}"
     )
 
@@ -140,6 +182,13 @@ def _change_line(c: Change) -> str:
     key = d.get("scope_key")
 
     if key and t == ChangeType.SCOPE_ADDED:
+        # An asset that turns up out of scope isn't a new target — the program
+        # moved it out of coverage. Call that an update, not an addition (a "➕
+        # Scope added" there reads as a target to go hunt). In-scope is the norm
+        # (every public addition is in-scope), so it stays a plain, untagged add.
+        if not d.get("eligible_for_submission", True):
+            return (f"✏️ <b>Scope updated</b> · <i>out of scope</i>"
+                    f"\n     {_scope_key_html(key)}")
         return f"➕ <b>Scope added</b>\n     {_scope_key_html(key)}"
     if key and t == ChangeType.SCOPE_REMOVED:
         return f"➖ <b>Scope removed</b>\n     {_scope_key_html(key)}"
@@ -175,7 +224,10 @@ def _change_line(c: Change) -> str:
 
 
 def _header(c: Change) -> str:
-    return f"🎯 <b>{escape_html(c.program_name)}</b>\n{_link(_program_url(c))}"
+    return (
+        f"🎯 <b>{escape_html(c.program_name)}</b>{_badge_suffix(c)}\n"
+        f"{_link(_program_url(c))}"
+    )
 
 
 def format_group_messages(group: list[Change]) -> list[str]:

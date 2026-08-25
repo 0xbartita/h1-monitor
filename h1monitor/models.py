@@ -94,6 +94,7 @@ class Change:
     summary: str
     details: dict
     directory: DirectoryProgram | None = None
+    source: str = ""  # "public" | "private" — origin, drives the header badge
 
     @property
     def primary_type(self) -> ChangeType:

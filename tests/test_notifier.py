@@ -1,34 +1,143 @@
 import pytest
+from datetime import date as _date, timedelta
 
-from h1monitor.notifier import format_change, format_group_messages, Notifier
+from h1monitor.notifier import (
+    format_change, format_group_messages, Notifier, _launch_is_recent,
+)
 from h1monitor.models import Change, ChangeType, DirectoryProgram
 
+_RECENT = (_date.today() - timedelta(days=3)).isoformat()   # genuinely just launched
+_OLD_LAUNCH = "2017-05-02"                                  # established years ago
 
-def _dir_change(date="2026-08-18", bounties=True):
+
+def _dir_change(date=_RECENT, bounties=True):
     dp = DirectoryProgram(
         "vercel", "Vercel Sandbox", bounties, "open", date,
         "https://hackerone.com/vercel",
     )
     return Change(
         frozenset({ChangeType.NEW_PUBLIC_PROGRAM}), "vercel", "Vercel Sandbox",
-        "open", "New public program", {}, directory=dp,
+        "open", "New public program", {}, directory=dp, source="public",
     )
 
 
-def test_new_program_format_with_date():
-    text = format_change(_dir_change())
+def test_recent_launch_says_new_program_with_date():
+    text = format_change(_dir_change())  # recent launch
     assert "New Program: Vercel Sandbox" in text
-    assert "launched on 2026-08-18 as a Bug bounty program" in text
+    assert f"launched on {_RECENT} as a Bug bounty program" in text
     assert "hackerone.com/vercel" in text
 
 
-def test_new_program_format_without_date():
+def test_old_program_says_now_listed_not_new():
+    # An established program (launched years ago) that just appears in the public
+    # directory is "Now listed", not a "New Program".
+    text = format_change(_dir_change(date=_OLD_LAUNCH))
+    assert "Now listed: Vercel Sandbox" in text
+    assert "New Program" not in text
+    assert _OLD_LAUNCH in text          # its real launch date is still shown
+    assert "🌐 Public" in text          # badge still present
+
+
+def test_dateless_program_says_now_listed():
+    # No launch date → we can't confirm it's fresh, so don't call it "New".
     text = format_change(_dir_change(date=None))
-    assert "was newly observed as a Bug bounty program" in text
+    assert "Now listed: Vercel Sandbox" in text
+    assert "New Program" not in text
+    assert "is now listed in the public directory as a Bug bounty program" in text
 
 
 def test_vdp_wording():
     assert "vulnerability disclosure program" in format_change(_dir_change(bounties=False))
+
+
+def test_new_public_program_header_tagged_public():
+    # A directory launch is always public — its 🆕 header carries the 🌐 Public tag.
+    assert "🌐 Public" in format_change(_dir_change())
+
+
+def test_launch_is_recent_true_for_recent_date():
+    assert _launch_is_recent("2026-08-01", _date(2026, 8, 21)) is True
+
+
+def test_launch_is_recent_false_for_old_date():
+    assert _launch_is_recent("2017-05-02", _date(2026, 8, 21)) is False
+
+
+def test_launch_is_recent_false_for_missing_or_bad_date():
+    today = _date(2026, 8, 21)
+    assert _launch_is_recent(None, today) is False
+    assert _launch_is_recent("", today) is False
+    assert _launch_is_recent("not-a-date", today) is False
+
+
+def test_private_program_header_shows_private_badge():
+    c = Change(
+        frozenset({ChangeType.SCOPE_ADDED}), "acme", "Acme", "open",
+        "scope added", {"scope_key": "URL:a.com"}, source="private",
+    )
+    text = format_change(c)
+    # Badge rides on the name line, right after the program name, before the link.
+    assert "🎯 <b>Acme</b> · 🔒 Private" in text
+    assert "🌐" not in text
+
+
+def test_public_program_header_shows_public_badge():
+    c = Change(
+        frozenset({ChangeType.SCOPE_ADDED}), "vercel", "Vercel", "open",
+        "scope added", {"scope_key": "URL:a.com"}, source="public",
+    )
+    text = format_change(c)
+    assert "🎯 <b>Vercel</b> · 🌐 Public" in text
+    assert "🔒" not in text
+
+
+def test_header_without_source_shows_no_badge():
+    """Defensive: a change with no source stamped renders neither badge, and no
+    dangling ' · ' separator — the name line stays exactly as before."""
+    c = Change(
+        frozenset({ChangeType.SCOPE_ADDED}), "acme", "Acme", "open",
+        "scope added", {"scope_key": "URL:a.com"},
+    )
+    text = format_change(c)
+    assert "🔒" not in text and "🌐" not in text
+    assert "Acme</b> ·" not in text
+
+
+def test_out_of_scope_added_scope_reads_as_updated():
+    # An asset that turns up out of scope isn't a new target — the program moved
+    # it out of coverage, so the line must say "updated", never "added".
+    c = Change(
+        frozenset({ChangeType.SCOPE_ADDED}), "workforce", "Workforce.com", "open",
+        "scope added", {"scope_key": "AI_MODEL:Roster Agent",
+                        "eligible_for_submission": False},
+    )
+    text = format_change(c)
+    assert "Scope updated" in text
+    assert "Scope added" not in text
+    assert "➕" not in text  # a plus sign would still read as a new target
+    assert "out of scope" in text
+    assert "<code>Roster Agent</code>" in text  # asset still tap-to-copy
+
+
+def test_in_scope_added_scope_has_no_coverage_tag():
+    # In scope is the norm (and every public addition is in scope) — stays clean.
+    c = Change(
+        frozenset({ChangeType.SCOPE_ADDED}), "x", "xAI", "open",
+        "scope added", {"scope_key": "URL:console.x.ai",
+                        "eligible_for_submission": True},
+    )
+    text = format_change(c)
+    assert "Scope added" in text
+    assert "out of scope" not in text and "in scope" not in text
+
+
+def test_added_scope_without_coverage_key_renders_clean():
+    # Backward-compatible: a details dict lacking the flag shows no tag, no crash.
+    c = Change(
+        frozenset({ChangeType.SCOPE_ADDED}), "acme", "Acme", "open",
+        "scope added", {"scope_key": "URL:a.com"},
+    )
+    assert "out of scope" not in format_change(c)
 
 
 def test_scope_change_format_has_name_and_asset():
