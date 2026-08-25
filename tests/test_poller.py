@@ -33,7 +33,7 @@ class FakePublic:
     def __init__(self, snap):
         self._snap = snap
 
-    async def fetch_public_snapshot(self):
+    async def fetch_public_snapshot(self, previous=None):
         return self._snap
 
 
@@ -248,7 +248,7 @@ async def test_public_loop_picks_up_a_new_interval_without_a_restart(tmp_path):
     sweeps = []
 
     class Client:
-        async def fetch_public_snapshot(self):
+        async def fetch_public_snapshot(self, previous=None):
             sweeps.append(1)
             return Snapshot({"a": _prog("a")})
 

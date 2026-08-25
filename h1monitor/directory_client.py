@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 
 import httpx
 
 from h1monitor.models import Snapshot, Program, Scope
+
+log = logging.getLogger("h1monitor")
 
 DIRECTORY_PAGE = "/directory/programs"
 GRAPHQL_URL = "/graphql"
@@ -29,6 +32,7 @@ query($after: String) {
     edges { node {
       handle name offers_bounties submission_state started_accepting_at
       structured_scopes(first: 200, archived: false, eligible_for_submission: true) {
+        pageInfo { hasNextPage }
         edges { node { asset_identifier asset_type eligible_for_bounty
                        eligible_for_submission max_severity instruction } }
       }
@@ -36,6 +40,28 @@ query($after: String) {
   }
 }
 """.strip()
+
+# The bulk query above takes only the first 200 scopes per program, and about
+# 4% of the directory has more than that (John Deere alone has 2,003). Those
+# programs need a second pass: this walks one team's scope list to the end.
+TEAM_SCOPES_QUERY = """
+query($handle: String!, $after: String) {
+  team(handle: $handle) {
+    structured_scopes(first: 200, after: $after, archived: false,
+                      eligible_for_submission: true) {
+      pageInfo { hasNextPage endCursor }
+      edges { node { asset_identifier asset_type eligible_for_bounty
+                     eligible_for_submission max_severity instruction } }
+    }
+  }
+}
+""".strip()
+
+_SCOPE_PAGE_PAUSE = 0.2   # breathing room between top-up pages; H1 429s on bursts
+# The biggest program on the platform carries ~9,800 in-scope assets, so this is
+# ~2.5x headroom. It exists to stop a paging bug spinning forever, not to cap
+# real programs — running into it raises rather than returning a partial list.
+_MAX_SCOPE_PAGES = 120    # 24,000 assets
 
 
 def _scope_from_node(n: dict) -> Scope:
@@ -45,6 +71,12 @@ def _scope_from_node(n: dict) -> Scope:
         n.get("max_severity"), n.get("instruction"),
         None, None, None, None, None,
     )
+
+
+def _scopes_were_truncated(node: dict) -> bool:
+    """True when the bulk query returned only part of this program's scopes."""
+    ss = node.get("structured_scopes") or {}
+    return bool((ss.get("pageInfo") or {}).get("hasNextPage"))
 
 
 def _program_from_node(node: dict) -> Program:
@@ -109,12 +141,46 @@ class DirectoryClient:
         m = _CSRF_RE.search(r.text)
         return m.group(1) if m else ""
 
-    async def fetch_public_snapshot(self) -> Snapshot:
+    async def _fetch_all_scopes(self, handle: str, headers: dict) -> dict[str, Scope]:
+        """Every in-scope asset for one program, following the cursor to the end."""
+        scopes: dict[str, Scope] = {}
+        after: str | None = None
+        for _ in range(_MAX_SCOPE_PAGES):
+            resp = await self._request(
+                "POST", GRAPHQL_URL, headers=headers,
+                json={"query": TEAM_SCOPES_QUERY,
+                      "variables": {"handle": handle, "after": after}},
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            if body.get("errors"):
+                raise RuntimeError(f"scope graphql errors: {body['errors']}")
+            ss = (((body.get("data") or {}).get("team") or {})
+                  .get("structured_scopes") or {})
+            for edge in ss.get("edges") or []:
+                sn = edge.get("node") or {}
+                if sn.get("asset_identifier") is not None and sn.get("asset_type"):
+                    s = _scope_from_node(sn)
+                    scopes[s.key] = s
+            page = ss.get("pageInfo") or {}
+            after = page.get("endCursor")
+            if not page.get("hasNextPage") or not after:
+                return scopes
+            await asyncio.sleep(_SCOPE_PAGE_PAUSE)
+        # Ran out of pages with more still to come. Returning what we have would
+        # look like a complete list and report every asset beyond it as removed,
+        # so treat it as a failed read and let the caller fall back.
+        raise RuntimeError(
+            f"{handle}: more than {_MAX_SCOPE_PAGES} pages of scopes"
+        )
+
+    async def fetch_public_snapshot(self, previous: Snapshot | None = None) -> Snapshot:
         csrf = await self._fetch_csrf()
         headers = {"Content-Type": "application/json"}
         if csrf:
             headers["X-Csrf-Token"] = csrf
         programs: dict[str, Program] = {}
+        truncated: list[str] = []
         after: str | None = None
         while True:
             resp = await self._request(
@@ -132,10 +198,34 @@ class DirectoryClient:
                 if node.get("handle"):
                     prog = _program_from_node(node)
                     programs[prog.handle] = prog
+                    if _scopes_were_truncated(node):
+                        truncated.append(prog.handle)
             page = teams.get("pageInfo") or {}
             if not page.get("hasNextPage"):
                 break
             after = page.get("endCursor")
             if not after:
                 break
+
+        # Second pass over the programs whose scope list was cut short. Without
+        # it, a new asset on a large program can never be noticed, and archiving
+        # one pulls an unrelated asset into view and reports it as newly added.
+        for handle in truncated:
+            try:
+                programs[handle].scopes = await self._fetch_all_scopes(handle, headers)
+            except Exception:  # noqa: BLE001 — see below
+                # Diffing a truncated list against a complete one would report
+                # every asset past position 200 as removed. Carry the previous
+                # cycle's scopes instead and stay quiet about this program until
+                # the top-up succeeds; one program's bad page must not poison a
+                # whole sweep.
+                prev = previous.programs.get(handle) if previous else None
+                if prev is not None:
+                    programs[handle].scopes = dict(prev.scopes)
+                else:
+                    programs[handle].scopes = {}
+                log.warning(
+                    "Couldn't read all scopes for %s; keeping the previous set",
+                    handle, exc_info=True,
+                )
         return Snapshot(programs)

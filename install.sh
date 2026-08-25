@@ -60,7 +60,21 @@ cd "$INSTALL_DIR"
 
 # --- 3. virtualenv + install -----------------------------------------------
 info "Building virtualenv and installing (this can take a minute) ..."
-[ -d .venv ] || "$PYTHON" -m venv .venv
+# Test for the pip binary, not for the directory. A venv that failed halfway --
+# Debian and Ubuntu pass the version check above but ship no python3-venv, and
+# Ctrl-C or a full disk do it too -- still leaves .venv/ behind. Checking only
+# that the directory exists would treat that wreck as a finished venv on every
+# later run, so the installer could never repair itself, even after the missing
+# package was installed. Throw away anything unusable and build again.
+if [ ! -x .venv/bin/pip ]; then
+    rm -rf .venv
+    "$PYTHON" -m venv .venv || die "Couldn't create the virtualenv.
+    On Debian/Ubuntu/Kali, install the missing piece and re-run this installer:
+        sudo apt install -y python3-venv"
+    [ -x .venv/bin/pip ] || die "The virtualenv was created without pip.
+    On Debian/Ubuntu/Kali, install the missing piece and re-run this installer:
+        sudo apt install -y python3-venv"
+fi
 ./.venv/bin/pip install --quiet --upgrade pip
 ./.venv/bin/pip install --quiet -e .
 ok "Installed into $INSTALL_DIR/.venv"

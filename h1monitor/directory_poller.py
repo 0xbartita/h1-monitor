@@ -15,7 +15,7 @@ async def run_public_cycle(store: Store, client, notifier: Notifier) -> None:
     """Diff all public programs (via the directory GraphQL — no API key)."""
     prefs = store.get_preferences()
     previous = store.load_snapshot("public")
-    snap = await client.fetch_public_snapshot()
+    snap = await client.fetch_public_snapshot(previous)
     if previous is None:
         store.save_snapshot("public", snap)
         await notifier.send_text(
