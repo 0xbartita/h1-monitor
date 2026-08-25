@@ -31,7 +31,10 @@ prompt_tty() {
     local val=""
     [ -r /dev/tty ] || die "No terminal available for input. Re-run interactively, or preset TELEGRAM_BOT_TOKEN in $INSTALL_DIR/.env"
     printf '%s' "$1" > /dev/tty
-    IFS= read -r val < /dev/tty
+    # -s: keep the secret off the screen (and out of terminal scrollback and any
+    # screenshot). Echo the newline ourselves, since a silent read swallows it.
+    IFS= read -rs val < /dev/tty
+    printf '\n' > /dev/tty
     printf '%s' "$val"
 }
 
@@ -94,6 +97,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=${INSTALL_DIR}
 ExecStart=${INSTALL_DIR}/.venv/bin/python -m h1monitor
 Restart=on-failure
@@ -109,7 +113,7 @@ EOF
     sleep 2
     if systemctl --user is-active --quiet h1monitor; then
         ok "h1monitor is running."
-        manage=$'systemctl --user status h1monitor   # is it running?\ntail -f '"$INSTALL_DIR"$'/h1monitor.log   # watch it work'
+        manage=$'systemctl --user status h1monitor        # is it running?\njournalctl --user -u h1monitor -f        # watch it work'
     else
         warn "Service installed but not active — inspect with: systemctl --user status h1monitor"
         manage="systemctl --user status h1monitor"
